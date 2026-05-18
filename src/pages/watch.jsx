@@ -1,26 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import {
-  ArrowLeft,
-  Cog,
-  Minus,
-  Pause,
-  Pencil,
-  Play,
-  Plus,
-  Subtitles,
-  Volume2,
-  VolumeX,
-  X,
-} from "lucide-react";
+import { ArrowLeft, Cog, Pause, Play, Subtitles, Volume2, VolumeX, X } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useCatalog } from "../lib/catalog-context";
-
-const seedSubtitles = [
-  { index: 1, start: 12, end: 15, text: "I told you not to come here at night." },
-  { index: 2, start: 15.5, end: 18, text: "The warning was clear enough." },
-  { index: 3, start: 19, end: 22, text: "We have to leave before dawn." },
-];
 
 function fmt(seconds) {
   const minutes = Math.floor((seconds || 0) / 60);
@@ -35,7 +17,7 @@ export function WatchPage() {
 
   const videoRef = useRef(null);
   const hideTimerRef = useRef(null);
-  const syncTimerRef = useRef(null);
+  const saveTimerRef = useRef(null);
   const currentRef = useRef(0);
   const durationRef = useRef(0);
 
@@ -43,42 +25,111 @@ export function WatchPage() {
   const [muted, setMuted] = useState(false);
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [drawer, setDrawer] = useState("none");
-  const [offset, setOffset] = useState(0);
-  const [cues, setCues] = useState(seedSubtitles);
-  const [editingIdx, setEditingIdx] = useState(null);
   const [controlsVisible, setControlsVisible] = useState(true);
+  const [subtitlePanelOpen, setSubtitlePanelOpen] = useState(false);
+  const [subtitleTracks, setSubtitleTracks] = useState([]);
+  const [embeddedTrackOptions, setEmbeddedTrackOptions] = useState([]);
+  const [selectedSubtitleId, setSelectedSubtitleId] = useState("off");
 
-  const syncPlayback = async () => {
+  const savePlayback = async (useBeacon = false) => {
     if (!item || !durationRef.current) return;
+    const payload = {
+      progress: Math.min(1, currentRef.current / durationRef.current),
+      currentTime: currentRef.current,
+      duration: durationRef.current,
+    };
+
+    if (useBeacon && navigator.sendBeacon) {
+      const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
+      navigator.sendBeacon(`/api/playback/${item.id}`, blob);
+      return;
+    }
+
     await fetch(`/api/playback/${item.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        progress: Math.min(1, currentRef.current / durationRef.current),
-        currentTime: currentRef.current,
-        duration: durationRef.current,
-      }),
+      body: JSON.stringify(payload),
+      keepalive: true,
     });
   };
 
   const resetHideTimer = () => {
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     setControlsVisible(true);
-    if (playing && drawer === "none") hideTimerRef.current = setTimeout(() => setControlsVisible(false), 2500);
+    if (playing && !subtitlePanelOpen) {
+      hideTimerRef.current = setTimeout(() => setControlsVisible(false), 2500);
+    }
   };
+
+  const applySubtitleSelection = (trackId) => {
+    setSelectedSubtitleId(trackId);
+    const video = videoRef.current;
+    if (!video) return;
+    const selectedTrack = subtitleTracks.find((track) => `ext:${track.id}` === trackId);
+    const tracks = video.textTracks;
+    for (let idx = 0; idx < tracks.length; idx += 1) {
+      const track = tracks[idx];
+      if (trackId === "off") {
+        track.mode = "disabled";
+      } else if (trackId.startsWith("emb:")) {
+        track.mode = `emb:${idx}` === trackId ? "showing" : "disabled";
+      } else {
+        track.mode = selectedTrack && track.label === selectedTrack.label ? "showing" : "disabled";
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (!item) return;
+    fetch(`/api/subtitles/${item.id}`)
+      .then((response) => response.json())
+      .then((payload) => {
+        const tracks = Array.isArray(payload.tracks) ? payload.tracks : [];
+        setSubtitleTracks(tracks);
+        if (tracks.length) setSelectedSubtitleId(`ext:${tracks[0].id}`);
+      })
+      .catch(() => setSubtitleTracks([]));
+  }, [item?.id]);
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (!videoRef.current) return;
+      if (event.key === "ArrowLeft") {
+        videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - 10);
+      }
+      if (event.key === "ArrowRight") {
+        const max = duration || videoRef.current.duration || 0;
+        videoRef.current.currentTime = Math.min(max, videoRef.current.currentTime + 10);
+      }
+      if (event.key === " ") {
+        event.preventDefault();
+        setPlaying((value) => !value);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [duration]);
+
+  useEffect(() => {
+    applySubtitleSelection(selectedSubtitleId);
+  }, [selectedSubtitleId, subtitleTracks.length, embeddedTrackOptions.length]);
+
+  useEffect(() => {
+    currentRef.current = current;
+    durationRef.current = duration;
+  }, [current, duration]);
 
   useEffect(() => {
     resetHideTimer();
     return () => hideTimerRef.current && clearTimeout(hideTimerRef.current);
-  }, [playing, drawer]);
+  }, [playing, subtitlePanelOpen]);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
     if (playing) video.play().catch(() => setPlaying(false));
     else video.pause();
-  }, [playing, item]);
+  }, [playing, item?.id]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -87,15 +138,21 @@ export function WatchPage() {
   }, [muted]);
 
   useEffect(() => {
-    currentRef.current = current;
-    durationRef.current = duration;
-  }, [current, duration]);
+    saveTimerRef.current = setInterval(() => savePlayback(false), 5000);
 
-  useEffect(() => {
-    syncTimerRef.current = setInterval(syncPlayback, 5000);
+    const onPageHide = () => savePlayback(true);
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") savePlayback(true);
+    };
+
+    window.addEventListener("pagehide", onPageHide);
+    document.addEventListener("visibilitychange", onVisibility);
+
     return () => {
-      if (syncTimerRef.current) clearInterval(syncTimerRef.current);
-      syncPlayback();
+      if (saveTimerRef.current) clearInterval(saveTimerRef.current);
+      window.removeEventListener("pagehide", onPageHide);
+      document.removeEventListener("visibilitychange", onVisibility);
+      savePlayback(true);
     };
   }, [item?.id]);
 
@@ -103,9 +160,10 @@ export function WatchPage() {
     return <div className="p-12 text-sm text-muted-foreground">Title not found.</div>;
   }
 
-  const loopT = (current || 0) % 40;
-  const adjT = loopT - offset / 1000;
-  const activeCue = cues.find((cue) => adjT >= cue.start && adjT <= cue.end);
+  const activeSubtitleTrack =
+    selectedSubtitleId.startsWith("ext:")
+      ? subtitleTracks.find((track) => `ext:${track.id}` === selectedSubtitleId)
+      : embeddedTrackOptions.find((track) => track.id === selectedSubtitleId);
 
   return (
     <div className="min-h-screen w-screen bg-black text-foreground flex flex-col" onMouseMove={resetHideTimer}>
@@ -116,114 +174,162 @@ export function WatchPage() {
           className="absolute inset-0 h-full w-full object-contain bg-black"
           autoPlay
           onTimeUpdate={(event) => setCurrent(event.currentTarget.currentTime || 0)}
+          onPause={() => {
+            setPlaying(false);
+            savePlayback(false);
+          }}
+          onSeeked={() => savePlayback(false)}
           onLoadedMetadata={(event) => {
             const video = event.currentTarget;
             setDuration(video.duration || 0);
-            if (item.currentTime && item.currentTime < video.duration) video.currentTime = item.currentTime;
+            const embedded = [];
+            for (let idx = 0; idx < video.textTracks.length; idx += 1) {
+              const track = video.textTracks[idx];
+              if (track.kind === "subtitles" || track.kind === "captions") {
+                embedded.push({ id: `emb:${idx}`, label: track.label || `Embedded ${idx + 1}` });
+              }
+            }
+            setEmbeddedTrackOptions(embedded);
+            if (!subtitleTracks.length && embedded.length) setSelectedSubtitleId(embedded[0].id);
+            if (item.currentTime && item.currentTime < video.duration) {
+              video.currentTime = item.currentTime;
+              setCurrent(item.currentTime);
+            }
           }}
           onClick={() => setPlaying((value) => !value)}
-        />
+        >
+          {subtitleTracks.map((track) => (
+            <track
+              key={track.id}
+              src={track.url}
+              kind="subtitles"
+              srcLang={track.lang || "und"}
+              label={track.label}
+              default={`ext:${track.id}` === selectedSubtitleId}
+            />
+          ))}
+        </video>
 
-        {activeCue && (
-          <div className="absolute bottom-32 left-1/2 -translate-x-1/2 px-4">
-            <div className="px-4 py-1.5 bg-black/70 text-white text-lg text-center max-w-3xl">{activeCue.text}</div>
-          </div>
-        )}
-
-        <div className={cn("absolute inset-0 transition-opacity duration-300", controlsVisible || drawer !== "none" ? "opacity-100" : "opacity-0 pointer-events-none")}>
-          <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-6 py-4 bg-gradient-to-b from-black/70 to-transparent">
-            <Link to={item.seriesId ? `/series/${item.seriesId}` : "/"} className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
+        <div className={cn("absolute inset-0 transition-opacity duration-300", controlsVisible || subtitlePanelOpen ? "opacity-100" : "opacity-0 pointer-events-none")}>
+          <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-6 py-4 bg-gradient-to-b from-black/65 to-transparent">
+            <Link to={item.seriesId ? `/series/${item.seriesId}` : "/"} className="inline-flex items-center gap-2 text-sm text-white/80 hover:text-white">
               <ArrowLeft className="h-4 w-4" />Back
             </Link>
-            <div className="text-xs font-mono text-muted-foreground truncate max-w-md">{item.path}</div>
+            <div className="text-xs font-mono text-white/70 truncate max-w-md">{item.path}</div>
           </div>
 
-          <div className="absolute bottom-0 left-0 right-0 px-8 pb-8 pt-12 bg-gradient-to-t from-black/70 to-transparent">
-            <div className="text-sm font-medium">{item.title}</div>
-            <div className="mt-4 flex items-center gap-3">
-              <span className="font-mono text-xs text-muted-foreground w-12">{fmt(current)}</span>
-              <input
-                type="range"
-                min={0}
-                max={duration || 0}
-                value={current}
-                onChange={(event) => {
-                  const value = Number(event.target.value);
-                  setCurrent(value);
-                  if (videoRef.current) videoRef.current.currentTime = value;
-                }}
-                className="flex-1 accent-[oklch(0.65_0.17_255)]"
-              />
-              <span className="font-mono text-xs text-muted-foreground w-12 text-right">{fmt(duration)}</span>
+          <div className="absolute bottom-0 left-0 right-0 px-6 md:px-10 pb-8 md:pb-10 pt-20 bg-gradient-to-t from-black/90 via-black/65 to-transparent">
+            <div className="text-base md:text-lg font-semibold text-white truncate">{item.title}</div>
+            <div className="mt-5 flex items-center gap-3 md:gap-4">
+              <span className="font-mono text-sm text-white/80 w-14">{fmt(current)}</span>
+              <div className="relative flex-1">
+                <div className="h-2 rounded-full bg-white/20 overflow-hidden">
+                  <div className="h-full bg-white" style={{ width: `${duration ? (current / duration) * 100 : 0}%` }} />
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={duration || 0}
+                  value={current}
+                  onChange={(event) => {
+                    const value = Number(event.target.value);
+                    setCurrent(value);
+                    if (videoRef.current) videoRef.current.currentTime = value;
+                  }}
+                  className="absolute inset-0 w-full opacity-0 cursor-pointer"
+                />
+              </div>
+              <span className="font-mono text-sm text-white/80 w-20 text-right">-{fmt(Math.max(0, duration - current))}</span>
             </div>
 
-            <div className="mt-4 flex items-center gap-6">
-              <button onClick={() => setPlaying((value) => !value)} className="h-10 w-10 rounded-full bg-foreground text-background grid place-items-center">
-                {playing ? <Pause className="h-4 w-4 fill-current" /> : <Play className="h-4 w-4 fill-current" />}
+            <div className="mt-5 flex items-center gap-5 md:gap-7">
+              <button onClick={() => setPlaying((value) => !value)} className="h-14 w-14 rounded-full bg-white text-black grid place-items-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
+                {playing ? <Pause className="h-6 w-6 fill-current" /> : <Play className="h-6 w-6 fill-current" />}
               </button>
-              <button onClick={() => setMuted((value) => !value)} className="text-muted-foreground hover:text-foreground" aria-label="Volume">
-                {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+              <button
+                onClick={() => {
+                  if (!videoRef.current) return;
+                  videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - 10);
+                }}
+                className="h-12 px-4 rounded-md bg-white/10 text-white hover:bg-white/20 text-sm font-mono focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
+              >
+                -10s
               </button>
-              <button onClick={() => setDrawer(drawer === "subs" ? "none" : "subs")} className={cn("inline-flex items-center gap-2 text-sm", drawer === "subs" ? "text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                <Subtitles className="h-4 w-4" />Subtitles
+              <button
+                onClick={() => {
+                  if (!videoRef.current) return;
+                  const max = duration || videoRef.current.duration || 0;
+                  videoRef.current.currentTime = Math.min(max, videoRef.current.currentTime + 10);
+                }}
+                className="h-12 px-4 rounded-md bg-white/10 text-white hover:bg-white/20 text-sm font-mono focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
+              >
+                +10s
               </button>
-              <button className="text-muted-foreground hover:text-foreground inline-flex items-center gap-2 text-sm"><Cog className="h-4 w-4" />Settings</button>
-              <div className="ml-auto text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Auto-hide active</div>
+              <button onClick={() => setMuted((value) => !value)} className="h-12 w-12 rounded-md bg-white/10 text-white hover:bg-white/20 grid place-items-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-white" aria-label="Volume">
+                {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
+              </button>
+              <button
+                onClick={() => {
+                  const next = !subtitlePanelOpen;
+                  setSubtitlePanelOpen(next);
+                  if (next) setControlsVisible(true);
+                }}
+                className={cn(
+                  "h-12 px-4 rounded-md inline-flex items-center gap-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-white",
+                  subtitlePanelOpen ? "bg-white text-black" : "bg-white/10 text-white hover:bg-white/20",
+                )}
+              >
+                <Subtitles className="h-5 w-5" /> Subtitles
+              </button>
+              <button className="h-12 px-4 rounded-md bg-white/10 text-white hover:bg-white/20 inline-flex items-center gap-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
+                <Cog className="h-5 w-5" /> Settings
+              </button>
             </div>
           </div>
         </div>
       </div>
 
-      {drawer === "subs" && (
-        <aside className="fixed right-0 top-0 h-full w-[380px] bg-panel border-l border-hairline z-50 flex flex-col">
+      {subtitlePanelOpen && (
+        <aside className="fixed right-0 top-0 h-full w-[360px] bg-panel border-l border-hairline z-50 flex flex-col">
           <div className="px-5 py-4 border-b border-hairline flex items-center justify-between">
             <div>
-              <div className="text-sm font-medium">Subtitle editor</div>
-              <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">English - SRT</div>
+              <div className="text-sm font-medium">Subtitle Tracks</div>
+              <div className="text-[10px] font-mono text-muted-foreground">Detected from media folder</div>
             </div>
-            <button onClick={() => setDrawer("none")} className="h-7 w-7 grid place-items-center rounded-md hover:bg-panel-2" aria-label="Close"><X className="h-4 w-4" /></button>
+            <button onClick={() => setSubtitlePanelOpen(false)} className="h-7 w-7 grid place-items-center rounded-md hover:bg-panel-2" aria-label="Close">
+              <X className="h-4 w-4" />
+            </button>
           </div>
 
-          <div className="p-5 border-b border-hairline">
-            <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Timing offset</div>
-            <div className="mt-3 flex items-center justify-between">
-              <button onClick={() => setOffset((value) => value - 250)} className="h-8 w-8 rounded-md bg-background hover:bg-panel-2 ring-1 ring-hairline grid place-items-center"><Minus className="h-3.5 w-3.5" /></button>
-              <div className="font-mono text-xl">{offset > 0 ? "+" : ""}{(offset / 1000).toFixed(2)}s</div>
-              <button onClick={() => setOffset((value) => value + 250)} className="h-8 w-8 rounded-md bg-background hover:bg-panel-2 ring-1 ring-hairline grid place-items-center"><Plus className="h-3.5 w-3.5" /></button>
-            </div>
-          </div>
-
-          <div className="flex-1 overflow-y-auto">
-            <ul className="divide-y divide-hairline">
-              {cues.map((cue, index) => {
-                const editing = editingIdx === index;
-                return (
-                  <li key={cue.index} className="px-5 py-3">
-                    <div className="flex items-center gap-3 text-[10px] font-mono text-muted-foreground">
-                      <span>#{cue.index}</span>
-                      {editing ? (
-                        <>
-                          <input type="number" step={0.1} value={cue.start} onChange={(event) => setCues((entries) => entries.map((entry, entryIndex) => entryIndex === index ? { ...entry, start: Number(event.target.value) } : entry))} className="w-16 bg-background ring-1 ring-hairline rounded px-1.5 py-0.5" />
-                          <span>-&gt;</span>
-                          <input type="number" step={0.1} value={cue.end} onChange={(event) => setCues((entries) => entries.map((entry, entryIndex) => entryIndex === index ? { ...entry, end: Number(event.target.value) } : entry))} className="w-16 bg-background ring-1 ring-hairline rounded px-1.5 py-0.5" />
-                        </>
-                      ) : (
-                        <span>{fmt(cue.start)} -&gt; {fmt(cue.end)}</span>
-                      )}
-                      <button onClick={() => setEditingIdx(editing ? null : index)} className="ml-auto text-muted-foreground hover:text-foreground" aria-label="Edit"><Pencil className="h-3 w-3" /></button>
-                    </div>
-                    {editing ? (
-                      <textarea value={cue.text} onChange={(event) => setCues((entries) => entries.map((entry, entryIndex) => entryIndex === index ? { ...entry, text: event.target.value } : entry))} className="mt-2 w-full bg-background ring-1 ring-hairline rounded p-2 text-sm resize-none" rows={2} />
-                    ) : (
-                      <div className={cn("mt-1.5 text-sm leading-snug", activeCue?.index === cue.index ? "text-accent" : "text-foreground/90")}>{cue.text}</div>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
+          <div className="p-5">
+            {!subtitleTracks.length && !embeddedTrackOptions.length && <div className="text-sm text-muted-foreground">No subtitles found (external or embedded).</div>}
+            {!!subtitleTracks.length || !!embeddedTrackOptions.length ? (
+              <>
+                <label className="text-xs text-muted-foreground">Active subtitle</label>
+                <select
+                  value={selectedSubtitleId}
+                  onChange={(event) => applySubtitleSelection(event.target.value)}
+                  className="mt-2 w-full h-10 rounded-md bg-background ring-1 ring-hairline px-3 text-sm"
+                >
+                  <option value="off">Off</option>
+                  {subtitleTracks.map((track) => (
+                    <option key={`ext:${track.id}`} value={`ext:${track.id}`}>{track.label} (file)</option>
+                  ))}
+                  {embeddedTrackOptions.map((track) => (
+                    <option key={track.id} value={track.id}>{track.label} (embedded)</option>
+                  ))}
+                </select>
+                {activeSubtitleTrack && (
+                  <div className="mt-4 text-xs text-muted-foreground break-all">
+                    Using: {activeSubtitleTrack.label}
+                  </div>
+                )}
+              </>
+            ) : null}
           </div>
         </aside>
       )}
     </div>
   );
 }
+

@@ -1,6 +1,6 @@
 import { cn } from "../lib/utils";
 
-export function Poster({ title, hue, aspect = "poster", className, size = "md" }) {
+export function Poster({ title, hue, thumbnailUrl, aspect = "poster", className, size = "md" }) {
   const initials = title
     .split(" ")
     .slice(0, 2)
@@ -18,6 +18,15 @@ export function Poster({ title, hue, aspect = "poster", className, size = "md" }
       )}
       style={{ backgroundColor: bg }}
     >
+      {thumbnailUrl && (
+        <img
+          src={thumbnailUrl}
+          alt={title}
+          className="absolute inset-0 h-full w-full object-cover"
+          loading="lazy"
+        />
+      )}
+      <div className={cn("absolute inset-0", thumbnailUrl ? "bg-black/30" : "")} />
       <div className="absolute inset-0 flex items-end p-3">
         <div>
           <div
@@ -32,7 +41,7 @@ export function Poster({ title, hue, aspect = "poster", className, size = "md" }
         </div>
       </div>
       <div
-        className="absolute right-3 top-3 text-[10px] font-mono uppercase tracking-widest"
+        className="absolute right-3 top-3 text-[10px] font-mono uppercase"
         style={{ color: fg, opacity: 0.55 }}
       >
         {initials}
@@ -40,4 +49,6 @@ export function Poster({ title, hue, aspect = "poster", className, size = "md" }
     </div>
   );
 }
+
+
 

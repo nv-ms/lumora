@@ -87,6 +87,7 @@ export async function buildCatalog(sources, playback = {}) {
       modifiedAt: file.modifiedAt,
       poster: hueFor(file.fullPath),
       streamUrl: `/api/media/${id}`,
+      thumbnailUrl: `/api/thumbnail/${id}`,
       progress: watch.progress,
       lastWatchedAt: watch.lastWatchedAt,
       currentTime: watch.currentTime,

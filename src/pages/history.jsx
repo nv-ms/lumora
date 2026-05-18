@@ -20,12 +20,12 @@ export function HistoryPage() {
 
   return (
     <div className="px-8 py-10">
-      <h1 className="text-2xl font-semibold tracking-tight">History</h1>
+      <h1 className="text-2xl font-semibold">History</h1>
       <p className="text-sm text-muted-foreground mt-1">Recently watched</p>
       <div className="mt-10 divide-y divide-hairline">
         {history.map((item) => (
           <Link key={item.id} to={`/watch/${item.id}`} className="flex items-center gap-5 py-4 group">
-            <div className="w-24 shrink-0"><Poster title={item.title} hue={item.poster} aspect="video" size="sm" /></div>
+            <div className="w-24 shrink-0"><Poster title={item.title} hue={item.poster} thumbnailUrl={item.thumbnailUrl} aspect="video" size="sm" /></div>
             <div className="flex-1 min-w-0">
               <div className="text-sm font-medium truncate group-hover:text-foreground">{item.title}</div>
               <div className="text-xs text-muted-foreground font-mono">{new Date(item.lastWatchedAt).toLocaleString()}</div>
@@ -37,3 +37,4 @@ export function HistoryPage() {
     </div>
   );
 }
+

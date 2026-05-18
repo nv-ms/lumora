@@ -1,6 +1,36 @@
 {
-  "sources": [
-    "C:/Users/kipto/Downloads/utorrent"
-  ],
-  "playback": {}
+    "sources":  [
+                    "C:/Users/kipto/Downloads/utorrent"
+                ],
+    "playback":  {
+                     "1e5698bc8ce149d0":  {
+                                              "progress":  0.5688687914107462,
+                                              "currentTime":  1882,
+                                              "duration":  3308.32,
+                                              "lastWatchedAt":  "2026-05-18T19:07:37.076Z"
+                                          },
+                     "9559b7d316700cb4":  {
+                                              "progress":  0.0018608913860807981,
+                                              "currentTime":  5.214662,
+                                              "duration":  2802.238776,
+                                              "lastWatchedAt":  "2026-05-18T18:46:08.550Z"
+                                          },
+                     "c4ad7d6a836c42c3":  {
+                                              "progress":  0.48858028894525923,
+                                              "currentTime":  4584.055703,
+                                              "duration":  9382.4,
+                                              "lastWatchedAt":  "2026-05-18T18:57:13.073Z"
+                                          }
+                 },
+    "thumbnails":  {
+
+                   },
+    "library":  {
+                    "movies":  [
+
+                               ],
+                    "series":  [
+
+                               ]
+                }
 }

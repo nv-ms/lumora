@@ -37,7 +37,7 @@ export function SeriesDetailPage() {
         </div>
 
         <div className="col-span-12 md:col-span-9">
-          <h1 className="mt-2 text-4xl font-semibold tracking-tight">{show.title}</h1>
+          <h1 className="mt-2 text-4xl font-semibold">{show.title}</h1>
 
           <div className="mt-10 flex gap-1 border-b border-hairline">
             {show.seasons.map((entry) => (
@@ -76,3 +76,4 @@ export function SeriesDetailPage() {
     </div>
   );
 }
+

@@ -31,7 +31,7 @@
   --color-panel-2: var(--panel-2);
   --color-hairline: var(--hairline);
   --font-sans: "Inter", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --font-mono: "Inter", system-ui, sans-serif;
 }
 
 :root {
@@ -82,14 +82,24 @@
   html, body, #root {
     background-color: var(--color-background);
     color: var(--color-foreground);
+    height: 100%;
+    overflow: hidden;
   }
   body {
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
+  }
+  .font-mono {
+    font-family: var(--font-sans) !important;
   }
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-thumb { background: var(--color-hairline); border-radius: 8px; }
   ::-webkit-scrollbar-track { background: transparent; }
   .no-scrollbar::-webkit-scrollbar { display: none; }
   .no-scrollbar { scrollbar-width: none; }
+  video::cue {
+    font-size: 1.15rem;
+    line-height: 1.35;
+    background: color-mix(in oklab, black 75%, transparent);
+  }
 }

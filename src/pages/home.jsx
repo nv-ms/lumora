@@ -28,12 +28,12 @@ export function HomePage() {
       {hero && (
         <section className="px-8 pt-10">
           <div className="flex gap-8 items-end">
-            <div className="w-48 shrink-0"><Poster title={hero.title} hue={hero.poster} /></div>
+            <div className="w-48 shrink-0"><Poster title={hero.title} hue={hero.poster} thumbnailUrl={hero.thumbnailUrl} /></div>
             <div className="flex-1 min-w-0 pb-2">
-              <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              <div className="text-[10px] font-mono uppercase text-muted-foreground">
                 Resume {hero.kind === "episode" ? `- S${hero.season}-E${hero.number}` : "- Movie"}
               </div>
-              <h1 className="mt-2 text-4xl font-semibold tracking-tight">{hero.title}</h1>
+              <h1 className="mt-2 text-4xl font-semibold">{hero.title}</h1>
               <div className="mt-6 flex items-center gap-4">
                 <Link to={`/watch/${hero.id}`} className="inline-flex items-center gap-2 h-10 px-5 bg-foreground text-background rounded-md text-sm font-medium hover:opacity-90 transition">
                   <Play className="h-4 w-4 fill-current" />Continue
@@ -57,13 +57,13 @@ function Shelf({ title, items }) {
   return (
     <section className="px-8 mt-14">
       <div className="flex items-baseline justify-between mb-5">
-        <h2 className="text-lg font-medium tracking-tight">{title}</h2>
-        <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{items.length} items</span>
+        <h2 className="text-lg font-medium">{title}</h2>
+        <span className="text-[10px] font-mono uppercase text-muted-foreground">{items.length} items</span>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-5">
         {items.map((item) => (
           <Link key={item.id} to={item.kind === "series" ? `/series/${item.id}` : `/watch/${item.id}`} className="group">
-            <Poster title={item.title} hue={item.poster} />
+            <Poster title={item.title} hue={item.poster} thumbnailUrl={item.thumbnailUrl} />
             <div className="mt-2 text-sm font-medium truncate group-hover:text-foreground">{item.title}</div>
           </Link>
         ))}
@@ -71,3 +71,5 @@ function Shelf({ title, items }) {
     </section>
   );
 }
+
+
