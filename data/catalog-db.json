@@ -1,36 +1,70 @@
 {
-    "sources":  [
-                    "C:/Users/kipto/Downloads/utorrent"
-                ],
-    "playback":  {
-                     "1e5698bc8ce149d0":  {
-                                              "progress":  0.5688687914107462,
-                                              "currentTime":  1882,
-                                              "duration":  3308.32,
-                                              "lastWatchedAt":  "2026-05-18T19:07:37.076Z"
-                                          },
-                     "9559b7d316700cb4":  {
-                                              "progress":  0.0018608913860807981,
-                                              "currentTime":  5.214662,
-                                              "duration":  2802.238776,
-                                              "lastWatchedAt":  "2026-05-18T18:46:08.550Z"
-                                          },
-                     "c4ad7d6a836c42c3":  {
-                                              "progress":  0.48858028894525923,
-                                              "currentTime":  4584.055703,
-                                              "duration":  9382.4,
-                                              "lastWatchedAt":  "2026-05-18T18:57:13.073Z"
-                                          }
-                 },
-    "thumbnails":  {
-
-                   },
-    "library":  {
-                    "movies":  [
-
-                               ],
-                    "series":  [
-
-                               ]
-                }
+  "sources": [
+    "C:/Users/kipto/Downloads/utorrent"
+  ],
+  "playback": {
+    "1e5698bc8ce149d0": {
+      "progress": 0.5688687914107462,
+      "currentTime": 1882,
+      "duration": 3308.32,
+      "lastWatchedAt": "2026-05-18T19:07:37.076Z"
+    },
+    "9559b7d316700cb4": {
+      "progress": 0.0018608913860807981,
+      "currentTime": 5.214662,
+      "duration": 2802.238776,
+      "lastWatchedAt": "2026-05-18T18:46:08.550Z"
+    },
+    "c4ad7d6a836c42c3": {
+      "progress": 0.48858028894525923,
+      "currentTime": 4584.055703,
+      "duration": 9382.4,
+      "lastWatchedAt": "2026-05-18T18:57:13.073Z"
+    },
+    "movie-0ce53a8a6cfa": {
+      "progress": 0.3494819900140361,
+      "currentTime": 2175.153539,
+      "duration": 6223.936,
+      "lastWatchedAt": "2026-05-18T20:35:20.832Z"
+    }
+  },
+  "thumbnails": {},
+  "library": {
+    "movies": [
+      {
+        "id": "movie-0ce53a8a6cfa",
+        "kind": "movie",
+        "title": "Mercy 2026 1080p WEBRip x264 AAC5 1-[YTS BZ]",
+        "filePath": "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Mercy.2026.1080p.WEBRip.x264.AAC5.1-[YTS.BZ].mp4",
+        "subtitles": [
+          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\Brazilian.por.srt",
+          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\Brazilian (Forced).por.srt",
+          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\Canadian (Forced).fre.srt",
+          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\tur.srt",
+          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\Canadian.fre.srt",
+          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\cze.srt",
+          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\dan.srt",
+          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\dut.srt",
+          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\European (Forced).fre.srt",
+          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\European (Forced).spa.srt",
+          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\European.fre.srt",
+          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\European.por.srt",
+          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\European.spa.srt",
+          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\fin.srt",
+          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\Forced.ger.srt",
+          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\hun.srt",
+          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\ita.srt",
+          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\Forced.hin.srt",
+          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\Forced.ita.srt",
+          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\Forced.jpn.srt",
+          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\Forced.mal.srt"
+        ],
+        "thumbnailPath": "",
+        "trailerPath": "",
+        "available": true,
+        "createdAt": "2026-05-18T19:52:00.552Z"
+      }
+    ],
+    "series": []
+  }
 }

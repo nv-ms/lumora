@@ -6,7 +6,7 @@ import { MoviesPage } from "./pages/movies";
 import { SeriesDetailPage } from "./pages/series-detail";
 import { SeriesPage } from "./pages/series";
 import { SettingsPage } from "./pages/settings";
-import { CatalogPage } from "./pages/sources";
+import { CatalogPage } from "./pages/catalog";
 import { WatchPage } from "./pages/watch";
 import { CatalogProvider } from "./lib/catalog-context";
 

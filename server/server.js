@@ -2,6 +2,8 @@ import { createReadStream } from "node:fs";
 import { promises as fs } from "node:fs";
 import http from "node:http";
 import path from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import {
   addEpisode,
   addSeason,
@@ -32,6 +34,8 @@ const MIME = {
 };
 
 const VIDEO_EXTS = new Set(Object.keys(MIME));
+const IMAGE_EXTS = new Set([".jpg", ".jpeg", ".png", ".webp"]);
+const execFileAsync = promisify(execFile);
 
 let cache = { generatedAt: null, sources: [], movies: [], series: [], fileMap: new Map() };
 
@@ -234,6 +238,50 @@ async function listFoldersFromSources() {
   return out;
 }
 
+async function getSystemRoots() {
+  const roots = [];
+  for (let code = 67; code <= 90; code += 1) {
+    const drive = `${String.fromCharCode(code)}:/`;
+    try {
+      await fs.access(drive);
+      roots.push(drive.replace("/", "\\"));
+    } catch {
+      // ignore missing drives
+    }
+  }
+  if (!roots.length) roots.push(path.parse(process.cwd()).root);
+  return roots;
+}
+
+async function listPathEntries(targetPath, mode = "all") {
+  const entries = await fs.readdir(targetPath, { withFileTypes: true });
+  const dirs = [];
+  const files = [];
+  for (const entry of entries) {
+    const full = path.join(targetPath, entry.name);
+    if (entry.isDirectory()) {
+      dirs.push({ name: entry.name, path: full, type: "dir" });
+      continue;
+    }
+    if (!entry.isFile()) continue;
+    const ext = path.extname(entry.name).toLowerCase();
+    const isVideo = VIDEO_EXTS.has(ext);
+    const isSubtitle = ext === ".srt" || ext === ".vtt";
+    const isImage = [".jpg", ".jpeg", ".png", ".webp"].includes(ext);
+    const allowed =
+      mode === "all" ||
+      (mode === "video" && isVideo) ||
+      (mode === "subtitle" && isSubtitle) ||
+      (mode === "image" && isImage) ||
+      (mode === "trailer" && isVideo);
+    if (!allowed) continue;
+    files.push({ name: entry.name, path: full, type: "file", ext });
+  }
+  dirs.sort((a, b) => a.name.localeCompare(b.name));
+  files.sort((a, b) => a.name.localeCompare(b.name));
+  return { dirs, files };
+}
+
 async function autoCatalogSeriesEpisodes(seriesId, sourceFolder) {
   const files = [];
   async function walk(dir) {
@@ -270,6 +318,7 @@ async function resolveSubtitlesForMedia(id) {
   if (!cache.fileMap.has(id)) await buildCatalogFromLibrary();
   const media = cache.fileMap.get(id);
   if (!media) return [];
+  const library = await getLibrary();
 
   const dir = path.dirname(media.path);
   const mediaBase = path.basename(media.path, path.extname(media.path)).toLowerCase();
@@ -286,24 +335,151 @@ async function resolveSubtitlesForMedia(id) {
     const lower = name.toLowerCase();
     return lower.startsWith(mediaBase) || lower.includes(mediaBase);
   });
+  const out = [];
+  const seen = new Set();
 
-  return (matched.length ? matched : subtitleFiles).map((name, index) => ({
-    id: String(index),
-    fileName: name,
-    path: path.join(dir, name),
-    ext: path.extname(name).toLowerCase(),
-    label: name.replace(path.extname(name), ""),
-    lang: subtitleLangFromName(name),
-  }));
+  function pushSubtitle(filePath) {
+    const normalized = normalizePath(filePath);
+    if (seen.has(normalized)) return;
+    seen.add(normalized);
+    const fileName = path.basename(filePath);
+    const ext = path.extname(fileName).toLowerCase();
+    if (ext !== ".srt" && ext !== ".vtt") return;
+    out.push({
+      fileName,
+      path: filePath,
+      ext,
+      label: fileName.replace(ext, ""),
+      lang: subtitleLangFromName(fileName),
+    });
+  }
+
+  for (const name of matched.length ? matched : subtitleFiles) {
+    pushSubtitle(path.join(dir, name));
+  }
+
+  for (const movie of library.movies || []) {
+    if (movie.id !== id || !Array.isArray(movie.subtitles)) continue;
+    for (const subPath of movie.subtitles) pushSubtitle(subPath);
+  }
+  for (const show of library.series || []) {
+    for (const season of show.seasons || []) {
+      for (const ep of season.episodes || []) {
+        if (ep.id !== id || !Array.isArray(ep.subtitles)) continue;
+        for (const subPath of ep.subtitles) pushSubtitle(subPath);
+      }
+    }
+  }
+
+  return out.map((track, index) => ({ ...track, id: String(index) }));
 }
 
 async function resolveThumbnailPath(id) {
+  const library = await getLibrary();
+
+  const findEntry = () => {
+    for (const movie of library.movies || []) if (movie.id === id) return { entry: movie, kind: "movie" };
+    for (const show of library.series || []) {
+      if (show.id === id) return { entry: show, kind: "series" };
+      for (const season of show.seasons || []) {
+        for (const ep of season.episodes || []) if (ep.id === id) return { entry: ep, kind: "episode" };
+      }
+    }
+    return { entry: null, kind: "" };
+  };
+
+  const findImageInDir = async (dir, mediaBase) => {
+    let entries = [];
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return null;
+    }
+    const files = entries
+      .filter((entry) => entry.isFile())
+      .map((entry) => entry.name)
+      .filter((name) => IMAGE_EXTS.has(path.extname(name).toLowerCase()));
+
+    const preferred = files.find((name) => {
+      const lower = name.toLowerCase();
+      return lower.startsWith(mediaBase) || lower.includes(mediaBase);
+    });
+    if (preferred) return path.join(dir, preferred);
+
+    const common = ["poster.jpg", "poster.jpeg", "poster.png", "cover.jpg", "cover.jpeg", "cover.png", "folder.jpg", "folder.jpeg", "thumb.jpg", "thumb.jpeg", "thumbnail.jpg", "thumbnail.jpeg"];
+    for (const name of common) {
+      const full = path.join(dir, name);
+      try {
+        await fs.access(full);
+        return full;
+      } catch {}
+    }
+    return null;
+  };
+
+  const findImageRecursively = async (rootDir, mediaBase, maxDepth = 3) => {
+    const queue = [{ dir: rootDir, depth: 0 }];
+    while (queue.length) {
+      const { dir, depth } = queue.shift();
+      const hit = await findImageInDir(dir, mediaBase);
+      if (hit) return hit;
+      if (depth >= maxDepth) continue;
+      let entries = [];
+      try {
+        entries = await fs.readdir(dir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        queue.push({ dir: path.join(dir, entry.name), depth: depth + 1 });
+      }
+    }
+    return null;
+  };
+
+  const generateWithFfmpeg = async (mediaPath) => {
+    try {
+      const outDir = path.resolve("data/thumbnails/auto");
+      await fs.mkdir(outDir, { recursive: true });
+      const outPath = path.join(outDir, `${id}.jpg`);
+      await execFileAsync("ffmpeg", ["-y", "-ss", "00:00:03", "-i", mediaPath, "-frames:v", "1", "-vf", "scale=640:-1", outPath], { windowsHide: true });
+      await fs.access(outPath);
+      await setThumbnail(id, outPath);
+      return outPath;
+    } catch {
+      return null;
+    }
+  };
+
   const customPath = await getThumbnail(id);
   if (customPath) {
     try {
       await fs.access(customPath);
       return customPath;
+    } catch { }
+  }
+
+  const { entry: mediaEntry, kind } = findEntry();
+  if (!mediaEntry) return null;
+
+  if (mediaEntry?.thumbnailPath) {
+    try {
+      await fs.access(mediaEntry.thumbnailPath);
+      await setThumbnail(id, mediaEntry.thumbnailPath);
+      return mediaEntry.thumbnailPath;
     } catch {}
+  }
+
+  if (kind === "series") {
+    const baseDir = mediaEntry.sourceFolder ? path.resolve(mediaEntry.sourceFolder) : "";
+    if (!baseDir) return null;
+    const titleBase = String(mediaEntry.title || "").toLowerCase();
+    const direct = await findImageInDir(baseDir, titleBase);
+    if (direct) return direct;
+    const deep = await findImageRecursively(baseDir, titleBase, 4);
+    if (deep) return deep;
+    return null;
   }
 
   if (!cache.fileMap.has(id)) await buildCatalogFromLibrary();
@@ -312,23 +488,60 @@ async function resolveThumbnailPath(id) {
 
   const dir = path.dirname(media.path);
   const mediaBase = path.basename(media.path, path.extname(media.path)).toLowerCase();
-  const entries = await fs.readdir(dir, { withFileTypes: true });
-  const images = entries
-    .filter((entry) => entry.isFile())
-    .map((entry) => entry.name)
-    .filter((name) => [".jpg", ".jpeg", ".png", ".webp"].includes(path.extname(name).toLowerCase()));
+  const local = await findImageInDir(dir, mediaBase);
+  if (local) return local;
 
-  const matched = images.find((name) => {
-    const lower = name.toLowerCase();
-    return lower.startsWith(mediaBase) || lower.includes(mediaBase);
-  });
+  const parent = path.dirname(dir);
+  if (parent && parent !== dir) {
+    const parentHit = await findImageInDir(parent, mediaBase);
+    if (parentHit) return parentHit;
+  }
 
-  return matched ? path.join(dir, matched) : null;
+  const recursive = await findImageRecursively(dir, mediaBase, 3);
+  if (recursive) return recursive;
+
+  const generated = await generateWithFfmpeg(media.path);
+  if (generated) return generated;
+
+  return null;
 }
 
 function sendJson(res, status, payload) {
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(payload));
+}
+
+function ensureWithin(baseDir, fileName) {
+  const safeName = path.basename(fileName).replace(/[^\w.\- ()[\]]+/g, "_");
+  return path.join(baseDir, safeName);
+}
+
+async function readMultipartFile(req) {
+  const contentType = req.headers["content-type"] || "";
+  const match = /boundary=(.+)$/.exec(contentType);
+  if (!match) throw new Error("Invalid multipart request");
+  const boundary = `--${match[1]}`;
+
+  const chunks = [];
+  for await (const chunk of req) chunks.push(chunk);
+  const buffer = Buffer.concat(chunks);
+  const raw = buffer.toString("binary");
+  const parts = raw.split(boundary).filter((part) => part.includes("Content-Disposition"));
+  if (!parts.length) throw new Error("No file payload found");
+
+  const part = parts[0];
+  const fileNameMatch = /filename=\"([^\"]+)\"/.exec(part);
+  if (!fileNameMatch) throw new Error("No filename found");
+  const fileName = fileNameMatch[1];
+
+  const headerEnd = part.indexOf("\r\n\r\n");
+  if (headerEnd === -1) throw new Error("Malformed multipart body");
+  const dataStart = headerEnd + 4;
+  const dataEnd = part.lastIndexOf("\r\n");
+  const binaryBody = part.slice(dataStart, dataEnd);
+  const fileBuffer = Buffer.from(binaryBody, "binary");
+
+  return { fileName, fileBuffer };
 }
 
 async function readJsonBody(req) {
@@ -395,8 +608,32 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { files: await listFilesFromSources(mode) });
     }
 
+    if (url.pathname === "/api/upload" && req.method === "POST") {
+      const category = url.searchParams.get("category") || "media";
+      const validCategories = new Set(["media", "subtitle", "image", "trailer"]);
+      if (!validCategories.has(category)) return sendJson(res, 400, { error: "Invalid upload category" });
+
+      const { fileName, fileBuffer } = await readMultipartFile(req);
+      const outDir = path.resolve(`data/uploads/${category}`);
+      await fs.mkdir(outDir, { recursive: true });
+      const outPath = ensureWithin(outDir, `${Date.now()}-${fileName}`);
+      await fs.writeFile(outPath, fileBuffer);
+      return sendJson(res, 200, { path: outPath, fileName });
+    }
+
     if (url.pathname === "/api/folders" && req.method === "GET") {
       return sendJson(res, 200, { folders: await listFoldersFromSources() });
+    }
+
+    if (url.pathname === "/api/fs/roots" && req.method === "GET") {
+      return sendJson(res, 200, { roots: await getSystemRoots() });
+    }
+
+    if (url.pathname === "/api/fs/list" && req.method === "GET") {
+      const targetPath = url.searchParams.get("path");
+      const mode = url.searchParams.get("mode") || "all";
+      if (!targetPath) return sendJson(res, 400, { error: "path is required" });
+      return sendJson(res, 200, await listPathEntries(targetPath, mode));
     }
 
     if (url.pathname === "/api/sources" && req.method === "GET") {
@@ -458,7 +695,24 @@ const server = http.createServer(async (req, res) => {
       });
 
       let previewEpisodes = [];
-      if (body.autoCatalog && body.sourceFolder) {
+      if (Array.isArray(body.episodeFiles) && body.episodeFiles.length) {
+        for (const ep of body.episodeFiles) {
+          const parsed = parseEpisode(path.basename(ep.filePath));
+          const season = Number(ep.seasonNumber || parsed?.season || 1);
+          const number = Number(ep.episodeNumber || parsed?.episode || 0);
+          await addSeason(series.id, season);
+          const seasonResult = await addEpisode(series.id, season, {
+            title: ep.title || path.basename(ep.filePath, path.extname(ep.filePath)),
+            filePath: ep.filePath,
+            episodeNumber: number,
+            subtitles: Array.isArray(ep.subtitles) ? ep.subtitles : [],
+            thumbnailPath: ep.thumbnailPath || "",
+            trailerPath: ep.trailerPath || "",
+          });
+          const added = seasonResult.episodes.find((entry) => entry.filePath === ep.filePath);
+          if (added) previewEpisodes.push(added);
+        }
+      } else if (body.autoCatalog && body.sourceFolder) {
         previewEpisodes = await autoCatalogSeriesEpisodes(series.id, body.sourceFolder);
       }
 
