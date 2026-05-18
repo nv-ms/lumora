@@ -1,4 +1,36 @@
 import { Link } from "react-router-dom";
-import { movies } from "@/lib/mock-library";
-import { Poster } from "@/components/poster";
-export function MoviesPage() { return <div className="p-8"><h1 className="text-2xl font-semibold">Movies</h1><div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">{movies.map((m) => <Link key={m.id} to={`/watch/${m.id}`}><Poster title={m.title} hue={m.poster} /></Link>)}</div></div>; }
+import { Poster } from "../components/poster";
+import { PosterGridSkeleton, SkeletonBlock } from "../components/skeletons";
+import { useCatalog } from "../lib/catalog-context";
+
+export function MoviesPage() {
+  const { movies, loading, error } = useCatalog();
+  if (loading) {
+    return (
+      <div className="px-8 py-10">
+        <SkeletonBlock className="h-8 w-40" />
+        <SkeletonBlock className="mt-2 h-4 w-56" />
+        <div className="mt-8">
+          <PosterGridSkeleton count={12} />
+        </div>
+      </div>
+    );
+  }
+  if (error) return <div className="p-8 text-sm text-red-400">{error}</div>;
+
+  return (
+    <div className="px-8 py-10">
+      <h1 className="text-2xl font-semibold tracking-tight">Movies</h1>
+      <p className="text-sm text-muted-foreground mt-1">{movies.length} titles in library</p>
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-5 mt-8">
+        {movies.map((movie) => (
+          <Link key={movie.id} to={`/watch/${movie.id}`} className="group">
+            <Poster title={movie.title} hue={movie.poster} />
+            <div className="mt-2 text-sm font-medium truncate">{movie.title}</div>
+            <div className="text-xs text-muted-foreground font-mono">{movie.extension}</div>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
