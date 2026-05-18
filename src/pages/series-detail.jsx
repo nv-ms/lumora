@@ -1,0 +1,3 @@
+import { Link, useParams } from "react-router-dom";
+import { getItem } from "@/lib/mock-library";
+export function SeriesDetailPage() { const { id } = useParams(); const item = getItem(id); if (!item || item.kind !== "series") return <div className="p-8">Series not found.</div>; return <div className="p-8"><h1 className="text-3xl font-semibold">{item.title}</h1><p className="text-sm text-muted-foreground mt-2">{item.overview}</p><Link className="inline-block mt-4 underline" to={`/watch/${item.id}`}>Continue</Link></div>; }

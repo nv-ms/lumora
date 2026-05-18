@@ -1,0 +1,3 @@
+import { Link, useParams } from "react-router-dom";
+import { getItem } from "@/lib/mock-library";
+export function WatchPage() { const { id } = useParams(); const item = getItem(id); if (!item) return <div className="p-8">Title not found.</div>; return <div className="min-h-screen bg-black text-white p-8"><Link to={item.kind === "series" ? `/series/${item.id}` : "/"}>Back</Link><h1 className="text-3xl mt-4">Now Playing: {item.title}</h1></div>; }
