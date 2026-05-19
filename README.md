@@ -75,3 +75,7 @@ The source list and playback state are persisted in:
 ## Notes
 - Series are expected in folders; episode parsing is best when filenames include `S01E01` pattern.
 - Catalog is dynamic: it rescans sources when `/api/catalog` is requested.
+
+## Future processes: 
+- TV App
+
