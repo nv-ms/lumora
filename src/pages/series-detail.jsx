@@ -32,7 +32,7 @@ export function SeriesDetailPage() {
     <div className="pb-16">
       <section className="px-8 pt-10 grid grid-cols-12 gap-10">
         <div className="col-span-12 md:col-span-3">
-          <Poster title={show.title} hue={show.poster} />
+          <Poster title={show.title} hue={show.poster} thumbnailUrl={show.thumbnailUrl} />
           <div className="mt-4 text-xs text-muted-foreground font-mono break-all">{show.path}</div>
         </div>
 

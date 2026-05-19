@@ -34,6 +34,7 @@ export function WatchPage() {
   const [fitMode, setFitMode] = useState("contain");
   const [subtitleQuery, setSubtitleQuery] = useState("");
   const [seekPreview, setSeekPreview] = useState(null);
+  const [resumeAt, setResumeAt] = useState(0);
   const aspectModes = ["contain", "cover", "fill"];
 
   const savePlayback = async (useBeacon = false) => {
@@ -120,6 +121,17 @@ export function WatchPage() {
   }, [item?.id]);
 
   useEffect(() => {
+    if (!item) return;
+    fetch(`/api/playback/${item.id}`)
+      .then((r) => r.json())
+      .then((p) => {
+        const t = Number(p?.playback?.currentTime || 0);
+        setResumeAt(Number.isFinite(t) && t > 0 ? t : 0);
+      })
+      .catch(() => setResumeAt(0));
+  }, [item?.id]);
+
+  useEffect(() => {
     const onKeyDown = (event) => {
       if (!videoRef.current) return;
       if (event.key === "ArrowLeft") { event.preventDefault(); performSeek(-1); }
@@ -132,6 +144,7 @@ export function WatchPage() {
 
   useEffect(() => { applySubtitleSelection(selectedSubtitleId); }, [selectedSubtitleId, subtitleTracks.length, embeddedTrackOptions.length]);
   useEffect(() => { applySubtitleLayoutAndTiming(); }, [subtitleDelay, controlsVisible, subtitlePanelOpen, selectedSubtitleId, current]);
+  useEffect(() => { if (subtitlePanelOpen) setSubtitleQuery(""); }, [subtitlePanelOpen]);
   useEffect(() => {
     if (!seekPreview) return undefined;
     const timer = setTimeout(() => setSeekPreview(null), 900);
@@ -218,7 +231,8 @@ export function WatchPage() {
             }
             setEmbeddedTrackOptions(embedded);
             if (!subtitleTracks.length && embedded.length) setSelectedSubtitleId(embedded[0].id);
-            if (item.currentTime && item.currentTime < video.duration) { video.currentTime = item.currentTime; setCurrent(item.currentTime); }
+            const startAt = resumeAt || Number(item.currentTime || 0);
+            if (startAt > 0 && startAt < video.duration) { video.currentTime = startAt; setCurrent(startAt); }
             setTimeout(applySubtitleLayoutAndTiming, 120);
           }}
           onClick={() => {}}

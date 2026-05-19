@@ -55,6 +55,10 @@ const dbModel = {
         await dbModel.write(data);
         return data.playback[id];
     },
+    getPlayback: async (id) => {
+        const data = await dbModel.read();
+        return data.playback[id] || null;
+    },
     setThumbnail: async (id, filePath) => {
         const data = await dbModel.read();
         data.thumbnails[id] = filePath;

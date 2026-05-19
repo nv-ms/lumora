@@ -2,6 +2,7 @@ const path = require('node:path');
 const fs = require('node:fs/promises');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
+const ffmpeg = require('@ffmpeg-installer/ffmpeg');
 const dbModel = require('../models/db');
 const catalogService = require('./catalog.service');
 
@@ -40,7 +41,8 @@ const thumbnailService = {
             const outDir = path.resolve('data/thumbnails/auto');
             await fs.mkdir(outDir, { recursive: true });
             const outPath = path.join(outDir, `${id}.jpg`);
-            await exec('ffmpeg', ['-y', '-ss', '00:00:03', '-i', mediaPath, '-frames:v', '1', '-vf', 'scale=640:-1', outPath], { windowsHide: true });
+            const ffmpegPath = ffmpeg?.path || 'ffmpeg';
+            await exec(ffmpegPath, ['-y', '-ss', '00:00:03', '-i', mediaPath, '-frames:v', '1', '-vf', 'scale=640:-1', outPath], { windowsHide: true });
             await fs.access(outPath);
             await dbModel.setThumbnail(id, outPath);
             return outPath;
@@ -84,15 +86,21 @@ const thumbnailService = {
 
         if (kind === 'series') {
             let baseDir = mediaEntry.sourceFolder ? path.resolve(mediaEntry.sourceFolder) : '';
+            let firstPlayable = '';
             if (!baseDir && Array.isArray(mediaEntry.seasons)) {
                 const firstEp = mediaEntry.seasons.flatMap((s) => s.episodes || []).find((ep) => ep?.filePath);
                 if (firstEp?.filePath) baseDir = path.dirname(firstEp.filePath);
+                if (firstEp?.filePath) firstPlayable = firstEp.filePath;
+            } else if (Array.isArray(mediaEntry.seasons)) {
+                const firstEp = mediaEntry.seasons.flatMap((s) => s.episodes || []).find((ep) => ep?.filePath);
+                if (firstEp?.filePath) firstPlayable = firstEp.filePath;
             }
             if (!baseDir) return null;
             const direct = await thumbnailService.findInDir(baseDir, String(mediaEntry.title || '').toLowerCase());
             if (direct) { await dbModel.setThumbnail(id, direct); return direct; }
             const deep = await thumbnailService.findDeep(baseDir, String(mediaEntry.title || '').toLowerCase(), 6);
             if (deep) { await dbModel.setThumbnail(id, deep); return deep; }
+            if (firstPlayable) return thumbnailService.grabFrame(id, firstPlayable);
             return null;
         }
 

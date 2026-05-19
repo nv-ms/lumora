@@ -14,6 +14,7 @@ router.post('/library/series/:seriesId/update', libraryController.updateSeries);
 router.post('/library/series/:seriesId/delete', libraryController.deleteSeries);
 router.post('/library/series/:seriesId/season', libraryController.createSeason);
 router.post('/library/series/:seriesId/season/:seasonNumber/episode', libraryController.createEpisode);
+router.get('/playback/:id', libraryController.getPlayback);
 router.post('/playback/:id', libraryController.savePlayback);
 
 module.exports = router;

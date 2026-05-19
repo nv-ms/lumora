@@ -7,6 +7,7 @@ import { SeriesDetailPage } from "./pages/series-detail";
 import { SeriesPage } from "./pages/series";
 import { SettingsPage } from "./pages/settings";
 import { CatalogPage } from "./pages/catalog";
+import { CatalogDetailPage } from "./pages/catalog-detail";
 import { WatchPage } from "./pages/watch";
 import { SearchPage } from "./pages/search";
 import { CatalogProvider } from "./lib/catalog-context";
@@ -22,6 +23,7 @@ export function App() {
           <Route path="series/:id" element={<SeriesDetailPage />} />
           <Route path="history" element={<HistoryPage />} />
           <Route path="catalog" element={<CatalogPage />} />
+          <Route path="catalog/:type/:id" element={<CatalogDetailPage />} />
           <Route path="search" element={<SearchPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="watch/:id" element={<WatchPage />} />

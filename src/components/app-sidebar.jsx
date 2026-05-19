@@ -1,6 +1,7 @@
 import { NavLink, useLocation } from "react-router-dom";
 import { Clock, Film, Home, Settings, TableProperties, Tv } from "lucide-react";
 import { cn } from "../lib/utils";
+import logo from "../assets/logo.png";
 
 const nav = [
   { to: "/", label: "Home", icon: Home },
@@ -17,7 +18,10 @@ export function AppSidebar() {
   return (
     <aside className="hidden md:flex w-60 shrink-0 flex-col border-r border-hairline bg-background overflow-hidden">
       <div className="px-6 py-7">
-        <div className="text-sm font-semibold uppercase">Director</div>
+        <div className="flex items-center gap-3">
+          <img src={logo} alt="Lumora" className="h-7 w-7 rounded-md object-cover" />
+          <div className="text-sm font-semibold uppercase">Lumora</div>
+        </div>
         <div className="mt-1 text-[10px] font-mono uppercase text-muted-foreground">Local library</div>
       </div>
 

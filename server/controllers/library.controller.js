@@ -180,6 +180,15 @@ const libraryController = {
         } catch (error) {
             return next(error);
         }
+    },
+
+    getPlayback: async (req, res, next) => {
+        try {
+            const playback = await dbModel.getPlayback(req.params.id);
+            return res.status(200).json({ playback });
+        } catch (error) {
+            return next(error);
+        }
     }
 };
 

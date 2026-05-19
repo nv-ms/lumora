@@ -5,6 +5,22 @@ const catalogService = require('./catalog.service');
 const utilService = require('./util.service');
 
 const subtitleService = {
+    walkSubs: async (root, maxDepth = 3) => {
+        const out = [];
+        const q = [{ dir: root, depth: 0 }];
+        while (q.length) {
+            const node = q.shift();
+            let entries = [];
+            try { entries = await fs.readdir(node.dir, { withFileTypes: true }); } catch { continue; }
+            for (const entry of entries) {
+                const full = path.join(node.dir, entry.name);
+                if (entry.isFile() && ['.srt', '.vtt'].includes(path.extname(entry.name).toLowerCase())) out.push(full);
+                if (entry.isDirectory() && node.depth < maxDepth) q.push({ dir: full, depth: node.depth + 1 });
+            }
+        }
+        return out;
+    },
+
     list: async (id) => {
         const media = await catalogService.media(id);
         if (!media) return [];
@@ -12,11 +28,8 @@ const subtitleService = {
         const dir = path.dirname(media.path);
         const mediaBase = path.basename(media.path, path.extname(media.path)).toLowerCase();
 
-        const entries = await fs.readdir(dir, { withFileTypes: true });
-        const subtitleFiles = entries
-            .filter((entry) => entry.isFile())
-            .map((entry) => entry.name)
-            .filter((name) => ['.srt', '.vtt'].includes(path.extname(name).toLowerCase()));
+        const allSubs = await subtitleService.walkSubs(dir, 4);
+        const subtitleFiles = allSubs.map((filePath) => path.basename(filePath));
 
         const matched = subtitleFiles.filter((name) => {
             const lower = name.toLowerCase();
@@ -44,9 +57,26 @@ const subtitleService = {
             });
         };
 
-        for (const name of matched.length ? matched : subtitleFiles) add(path.join(dir, name));
+        if (matched.length) {
+            for (const filePath of allSubs) {
+                const name = path.basename(filePath);
+                const lower = name.toLowerCase();
+                if (lower.startsWith(mediaBase) || lower.includes(mediaBase)) add(filePath);
+            }
+        } else {
+            for (const filePath of allSubs) add(filePath);
+        }
+
         for (const movie of library.movies || []) if (movie.id === id && Array.isArray(movie.subtitles)) for (const subPath of movie.subtitles) add(subPath);
-        for (const show of library.series || []) for (const season of show.seasons || []) for (const ep of season.episodes || []) if (ep.id === id && Array.isArray(ep.subtitles)) for (const subPath of ep.subtitles) add(subPath);
+        for (const show of library.series || []) {
+            for (const season of show.seasons || []) {
+                for (const ep of season.episodes || []) {
+                    if (ep.id !== id) continue;
+                    if (Array.isArray(show.subtitles)) for (const subPath of show.subtitles) add(subPath);
+                    if (Array.isArray(ep.subtitles)) for (const subPath of ep.subtitles) add(subPath);
+                }
+            }
+        }
 
         return out.map((track, idx) => ({ ...track, id: String(idx) }));
     }

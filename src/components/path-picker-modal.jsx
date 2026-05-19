@@ -10,7 +10,7 @@ function normalizeParent(p) {
   return idx <= 0 ? cleaned : cleaned.slice(0, idx + 1);
 }
 
-export function PathPickerModal({ open, title, mode, onClose, onPick, multi = false }) {
+export function PathPickerModal({ open, title, mode, onClose, onPick, multi = false, allowFolder = false }) {
   const [roots, setRoots] = useState([]);
   const [currentPath, setCurrentPath] = useState("");
   const [dirs, setDirs] = useState([]);
@@ -132,6 +132,11 @@ export function PathPickerModal({ open, title, mode, onClose, onPick, multi = fa
             <div className="text-xs text-red-400">{error}</div>
             <div className="flex items-center gap-2">
               {loading && <span className="text-xs text-muted-foreground">Loading...</span>}
+              {allowFolder && (
+                <button onClick={() => onPick(currentPath)} disabled={!currentPath} className="h-10 rounded-md bg-panel px-4 text-sm hover:bg-panel-2">
+                  Use Folder
+                </button>
+              )}
               <button onClick={() => onPick(multi ? selected : selected[0] || "")} disabled={!selected.length} className="h-10 rounded-md bg-foreground px-4 text-sm text-background disabled:opacity-50">Select</button>
             </div>
           </div>

@@ -22,49 +22,100 @@
       "lastWatchedAt": "2026-05-18T18:57:13.073Z"
     },
     "movie-0ce53a8a6cfa": {
-      "progress": 0.7486002838075456,
-      "currentTime": 4659.240256,
+      "progress": 0.5,
+      "currentTime": 123,
+      "duration": 246,
+      "lastWatchedAt": "2026-05-19T09:26:07.431Z"
+    },
+    "movie-e26a0822e9a3": {
+      "progress": 0.2535542940994252,
+      "currentTime": 1578.105699,
       "duration": 6223.936,
-      "lastWatchedAt": "2026-05-19T08:29:00.716Z"
+      "lastWatchedAt": "2026-05-19T09:40:06.382Z"
+    },
+    "episode-ceb308c3fc72": {
+      "progress": 0.29084031321033027,
+      "currentTime": 962.192825,
+      "duration": 3308.32,
+      "lastWatchedAt": "2026-05-19T10:07:32.821Z"
     }
   },
-  "thumbnails": {},
+  "thumbnails": {
+    "movie-6ba17ab5de7b": "D:\\Job\\nvms\\projects\\stream-weaver\\data\\thumbnails\\auto\\movie-6ba17ab5de7b.jpg",
+    "movie-e26a0822e9a3": "D:\\Job\\nvms\\projects\\stream-weaver\\data\\thumbnails\\auto\\movie-e26a0822e9a3.jpg",
+    "episode-ceb308c3fc72": "D:\\Job\\nvms\\projects\\stream-weaver\\data\\thumbnails\\auto\\episode-ceb308c3fc72.jpg",
+    "series-66c52099961c": "C:\\Users\\kipto\\OneDrive\\Pictures\\dutton-ranch-showrunner-producer.png",
+    "episode-8448dde1985a": "D:\\Job\\nvms\\projects\\stream-weaver\\data\\thumbnails\\auto\\episode-8448dde1985a.jpg"
+  },
   "library": {
     "movies": [
       {
-        "id": "movie-0ce53a8a6cfa",
+        "id": "movie-e26a0822e9a3",
         "kind": "movie",
-        "title": "Mercy 2026 1080p WEBRip x264 AAC5 1-[YTS BZ]",
+        "title": "Mercy",
         "filePath": "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Mercy.2026.1080p.WEBRip.x264.AAC5.1-[YTS.BZ].mp4",
-        "subtitles": [
-          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\Brazilian.por.srt",
-          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\Brazilian (Forced).por.srt",
-          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\Canadian (Forced).fre.srt",
-          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\tur.srt",
-          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\Canadian.fre.srt",
-          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\cze.srt",
-          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\dan.srt",
-          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\dut.srt",
-          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\European (Forced).fre.srt",
-          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\European (Forced).spa.srt",
-          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\European.fre.srt",
-          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\European.por.srt",
-          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\European.spa.srt",
-          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\fin.srt",
-          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\Forced.ger.srt",
-          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\hun.srt",
-          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\ita.srt",
-          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\Forced.hin.srt",
-          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\Forced.ita.srt",
-          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\Forced.jpn.srt",
-          "C:\\Users\\kipto\\Downloads\\utorrent\\Mercy (2026) [1080p] [WEBRip] [5.1] [YTS.BZ]\\Subs\\Forced.mal.srt"
-        ],
+        "subtitles": [],
         "thumbnailPath": "",
         "trailerPath": "",
         "available": true,
-        "createdAt": "2026-05-18T19:52:00.552Z"
+        "createdAt": "2026-05-19T09:22:04.783Z",
+        "updatedAt": "2026-05-19T09:40:21.742Z"
       }
     ],
-    "series": []
+    "series": [
+      {
+        "id": "series-66c52099961c",
+        "kind": "series",
+        "title": "Dutton Ranch",
+        "sourceFolder": "",
+        "subtitles": [],
+        "thumbnailPath": "C:\\Users\\kipto\\OneDrive\\Pictures\\dutton-ranch-showrunner-producer.png",
+        "trailerPath": "",
+        "available": true,
+        "seasons": [
+          {
+            "number": 1,
+            "episodes": [
+              {
+                "id": "episode-ceb308c3fc72",
+                "kind": "episode",
+                "title": "Dutton Ranch S01E01 1080p WEB h264-GRACE[EZTVx to]",
+                "number": 1,
+                "filePath": "C:\\Users\\kipto\\Downloads\\utorrent\\Dutton Ranch\\Dutton.Ranch.S01E01.1080p.WEB.h264-GRACE[EZTVx.to].mkv",
+                "season": 1,
+                "seriesId": "series-66c52099961c",
+                "subtitles": [],
+                "available": true
+              },
+              {
+                "id": "episode-e58a5b07afac",
+                "kind": "episode",
+                "title": "Dutton Ranch S01E02 Earn Another Day 2160p PMTP WEB-DL DDP5 1 Atmos DV HDR H 265-FLUX",
+                "number": 2,
+                "filePath": "C:\\Users\\kipto\\Downloads\\utorrent\\Dutton Ranch\\www.UIndex.org    -    Dutton Ranch S01E02 Earn Another Day 2160p PMTP WEB-DL DDP5 1 Atmos DV HDR H 265-FLUX\\Dutton Ranch S01E02 Earn Another Day 2160p PMTP WEB-DL DDP5 1 Atmos DV HDR H 265-FLUX.mp4",
+                "season": 1,
+                "seriesId": "series-66c52099961c",
+                "subtitles": [],
+                "available": true
+              },
+              {
+                "id": "episode-8448dde1985a",
+                "kind": "episode",
+                "title": "Dutton Ranch S01E02 1080p WEB h264-GRACE",
+                "number": 3,
+                "filePath": "C:\\Users\\kipto\\Downloads\\utorrent\\Dutton Ranch\\www.UIndex.org    -    Dutton.Ranch.S01E02.1080p.WEB.h264-GRACE\\Dutton.Ranch.S01E02.1080p.WEB.h264-GRACE.mkv",
+                "season": 1,
+                "seriesId": "series-66c52099961c",
+                "subtitles": [],
+                "available": true
+              }
+            ]
+          }
+        ],
+        "createdAt": "2026-05-19T10:03:23.530Z",
+        "filePath": "",
+        "updatedAt": "2026-05-19T10:08:59.409Z"
+      }
+    ]
   }
 }
