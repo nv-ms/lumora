@@ -1,81 +1,144 @@
-# Stream Weaver
+# Lumora
 
-Local media web app + local media API server.
+![Lumora Logo](./src/assets/logo.png)
 
-## What this does
-- Scans local folders for video files (`.mp4`, `.mkv`, `.avi`, `.mov`, `.m4v`, `.webm`, `.wmv`, `.flv`)
-- Auto-groups:
-  - movies (single files)
-  - series (folder-based, season/episode inferred from `SxxExx` when present)
-- Streams media with HTTP byte-range support (`206 Partial Content`) to preserve original quality and extension/container
-- Saves playback progress in a simple JSON DB
+Lumora is a local media web app with a local API server for browsing, organizing, and streaming your media library.
 
-## Default media source
-`C:/Users/kipto/Downloads/utorrent`
+## What it does
+- Serves a React frontend (`Vite`) and an Express API.
+- Uses the Lumora app shell with PWA manifest + service worker registration.
+- Supports movie and series library management (create, update, delete).
+- Streams media with HTTP range support (`206 Partial Content`).
+- Saves per-item playback progress.
+- Supports subtitle discovery/serving (`.srt` converted to `.vtt` on the fly).
+- Supports thumbnail retrieval and custom thumbnail upload.
+- Provides local filesystem browsing APIs for picker-style UI flows.
+- Supports media uploads into `data/uploads/*`.
+- Includes DPAD/remote-friendly keyboard navigation for TV-style usage.
 
-Configured in:
-- `data/catalog-db.json`
+## Stack
+- Frontend: React 19, React Router, Tailwind, Vite
+- Backend: Express (Node.js)
+- Storage: JSON file DB (`data/catalog-db.json`)
 
 ## Requirements
 - Node.js 18+
 - npm
 
-## Install
+## Install dependencies
 ```bash
 npm install
 ```
 
-## Run
-Open two terminals.
+## Run in development
+Use two terminals.
 
-Terminal 1 (API server):
+Terminal 1 (API):
 ```bash
 npm run server
 ```
-Server runs at `http://localhost:8787`.
+Runs at `http://localhost:8787` by default.
 
 Terminal 2 (frontend):
 ```bash
 npm run dev
 ```
-Vite runs at `http://localhost:5173` and proxies `/api` to `http://localhost:8787`.
+Runs at `http://localhost:5173`.
 
-## Build
+## Build frontend
 ```bash
 npm run build
 ```
 
-## Run server as Windows service
-Run PowerShell as **Administrator**.
+## Serve built frontend from backend
+When `dist/index.html` exists, `server/app.js` serves:
+- static files from `dist/`
+- SPA fallback for non-`/api` routes
 
-```ps1
-function lumora {
-  Start-Process -FilePath "C:\Program Files\nodejs\node.exe" -ArgumentList "server/app.js" -WorkingDirectory "D:\Job\nvms\projects\stream-weaver" -WindowStyle Hidden
-}
-```
+## Windows service commands
+From the repository root:
+- `npm run server` to run backend normally
+- `node server/windows-service/install.service.js` to install service
+- `node server/windows-service/uninstall.service.js` to uninstall service
 
-## Media source management
-From **Settings** in the app:
-- Add folder path
-- Remove folder path
-- Rescan catalog
+## API overview
+Base URL: `http://localhost:8787/api`
 
-The source list and playback state are persisted in:
-- `data/catalog-db.json`
+### Health and catalog
+- `GET /health`
+- `GET /catalog`
 
-## API (local)
-- `GET /api/health`
-- `GET /api/catalog`
-- `GET /api/sources`
-- `POST /api/sources` body: `{ "path": "C:/path/to/media" }`
-- `DELETE /api/sources?path=C:/path/to/media`
-- `PATCH /api/playback/:id` body: `{ "progress": 0.45, "currentTime": 123, "duration": 2700 }`
-- `GET /api/media/:id` (supports `Range` header)
+### Sources and playback
+- `GET /sources`
+- `POST /sources/add` body: `{ "path": "C:/path/to/media" }`
+- `POST /sources/delete` body: `{ "path": "C:/path/to/media" }`
+- `GET /playback/:id`
+- `POST /playback/:id` body: `{ "progress": 0.45, "currentTime": 123, "duration": 2700 }`
+
+### Library management
+- `POST /library/movie`
+- `POST /library/movie/:movieId/update`
+- `POST /library/movie/:movieId/delete`
+- `POST /library/series`
+- `POST /library/series/:seriesId/update`
+- `POST /library/series/:seriesId/delete`
+- `POST /library/series/:seriesId/season`
+- `POST /library/series/:seriesId/season/:seasonNumber/episode`
+
+### Media and filesystem
+- `GET /media/:id`
+- `GET /files?mode=video|subtitle|image|all`
+- `POST /upload?category=media|subtitle|image|trailer` (multipart)
+- `GET /folders` (currently returns an empty list)
+- `GET /fs/roots`
+- `GET /fs/list?path=C:/...&mode=all|video|subtitle|image|trailer`
+
+### Assets
+- `GET /thumbnail/:id`
+- `POST /thumbnail/:id` body: `{ "dataUrl": "data:image/png;base64,..." }`
+- `GET /subtitles/:mediaId`
+- `GET /subtitles/:mediaId/:trackId`
+
+## Frontend routes
+- `/`
+- `/movies`
+- `/series`
+- `/series/:id`
+- `/catalog`
+- `/catalog/:type/:id`
+- `/search`
+- `/history`
+- `/settings`
+- `/watch/:id`
+
+## Storage and generated files
+- DB/state: `data/catalog-db.json`
+- Uploaded assets: `data/uploads/`
+- Thumbnails: `data/thumbnails/` and `data/thumbnails/auto/`
 
 ## Notes
-- Series are expected in folders; episode parsing is best when filenames include `S01E01` pattern.
-- Catalog is dynamic: it rescans sources when `/api/catalog` is requested.
+- Episode auto-detection works best with filenames containing patterns like `S01E01`.
+- CORS is enabled as `*` in backend for local/dev usage.
 
-## Future processes: 
-- TV App
-
+## Future additions
+- TV app polish
+  - Bigger focus states and stronger DPAD-first layouts across all pages.
+  - Optional "lean-back" mode with simplified navigation and fewer clicks.
+- Metadata enrichment
+  - Optional fetchers for movie/series summaries, year, genres, and cast.
+  - Manual metadata override UI for locally curated libraries.
+- Better subtitle workflows
+  - Subtitle search/import from configured providers.
+  - Per-profile subtitle defaults (language, styling, offset).
+- Library indexing improvements
+  - Background/incremental indexing instead of full rebuild on every catalog request.
+  - File-watch based refresh for faster update detection.
+- Playback experience
+  - Intro/outro skip markers and quick replay actions.
+  - "Continue watching" tuning with smarter resume thresholds.
+- Multi-user support
+  - Local profiles with separate history, progress, and preferences.
+  - Optional profile PIN lock.
+- Admin and diagnostics
+  - Basic admin dashboard for source health, scan logs, and failed file entries.
+  - Export/import backup for `data/catalog-db.json` and related settings.
