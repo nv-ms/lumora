@@ -32,3 +32,4 @@ dist-ssr
 *.sw?
 id
 recycle_bin
+data/
