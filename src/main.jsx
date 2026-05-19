@@ -4,6 +4,7 @@ import { BrowserRouter } from "react-router-dom";
 import "./styles.css";
 import { App } from "./App";
 import logo from "./assets/logo.png";
+import { initAppShell } from "./lib/app-shell";
 
 const setFavicon = () => {
   let link = document.querySelector("link[rel='icon']");
@@ -16,6 +17,7 @@ const setFavicon = () => {
 };
 
 setFavicon();
+initAppShell();
 
 createRoot(document.getElementById("root")).render(
   <StrictMode>

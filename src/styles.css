@@ -79,15 +79,21 @@
   * {
     border-color: var(--color-border);
   }
+  *:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
   html, body, #root {
     background-color: var(--color-background);
     color: var(--color-foreground);
     height: 100%;
     overflow: hidden;
+    overscroll-behavior: none;
   }
   body {
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
   }
   .font-mono {
     font-family: var(--font-sans) !important;

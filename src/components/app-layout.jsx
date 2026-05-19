@@ -64,7 +64,7 @@ export function AppLayout() {
             {hostConnected ? "Connected" : "Disconnected"}
           </div>
         </header>
-        <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
+        <main data-dpad-scroll className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
           <Outlet />
         </main>
       </div>
