@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { apiFetch } from "../lib/api";
 
 const LAST_PATH_KEY = "stream_weaver:last_picker_path";
 const LAST_PATH_MODE_KEY = "stream_weaver:last_picker_path_by_mode";
@@ -28,7 +29,7 @@ export function PathPickerModal({ open, title, mode, onClose, onPick, multi = fa
     (async () => {
       setLoading(true);
       try {
-        const res = await fetch("/api/fs/roots");
+        const res = await apiFetch("/api/fs/roots");
         const data = await res.json();
         const list = Array.isArray(data.roots) ? data.roots : [];
         setRoots(list);
@@ -62,7 +63,7 @@ export function PathPickerModal({ open, title, mode, onClose, onPick, multi = fa
       setError("");
       try {
         const url = `/api/fs/list?path=${encodeURIComponent(currentPath)}&mode=${encodeURIComponent(mode || "all")}`;
-        const res = await fetch(url);
+        const res = await apiFetch(url);
         const data = await res.json();
         setDirs(Array.isArray(data.dirs) ? data.dirs : []);
         setFiles(Array.isArray(data.files) ? data.files : []);
@@ -145,3 +146,4 @@ export function PathPickerModal({ open, title, mode, onClose, onPick, multi = fa
     </div>
   );
 }
+

@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { apiFetch, assetUrl } from "./api";
 
 const CatalogContext = createContext(null);
 
@@ -11,10 +12,27 @@ export function CatalogProvider({ children }) {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch("/api/catalog");
+      const response = await apiFetch("/api/catalog");
       if (!response.ok) throw new Error(`Catalog load failed (${response.status})`);
       const data = await response.json();
-      setCatalog(data);
+      const movies = (data.movies || []).map((movie) => ({
+        ...movie,
+        streamUrl: assetUrl(movie.streamUrl),
+        thumbnailUrl: assetUrl(movie.thumbnailUrl),
+      }));
+      const series = (data.series || []).map((show) => ({
+        ...show,
+        thumbnailUrl: assetUrl(show.thumbnailUrl),
+        seasons: (show.seasons || []).map((season) => ({
+          ...season,
+          episodes: (season.episodes || []).map((ep) => ({
+            ...ep,
+            streamUrl: assetUrl(ep.streamUrl),
+            thumbnailUrl: assetUrl(ep.thumbnailUrl),
+          })),
+        })),
+      }));
+      setCatalog({ ...data, movies, series });
     } catch (err) {
       setError(err.message || "Failed to load catalog");
       setCatalog({ movies: [], series: [], sources: [], generatedAt: null });

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, Maximize2, Minimize2, MoveHorizontal, Pause, Play, Subtitles, Volume2, VolumeX } from "lucide-react";
 import { cn } from "../lib/utils";
+import { apiFetch, apiUrl, assetUrl } from "../lib/api";
 import { useCatalog } from "../lib/catalog-context";
 import { SubtitlePanel } from "../components/watch/subtitle-panel";
 import { SEEK_COOLDOWN_MS, SEEK_STEPS, actionByX, fmt, isInteractiveTarget } from "../components/watch/player-utils";
@@ -41,10 +42,10 @@ export function WatchPage() {
     if (!item || !durationRef.current) return;
     const payload = { progress: Math.min(1, currentRef.current / durationRef.current), currentTime: currentRef.current, duration: durationRef.current };
     if (useBeacon && navigator.sendBeacon) {
-      navigator.sendBeacon(`/api/playback/${item.id}`, new Blob([JSON.stringify(payload)], { type: "application/json" }));
+      navigator.sendBeacon(apiUrl(`/api/playback/${item.id}`), new Blob([JSON.stringify(payload)], { type: "application/json" }));
       return;
     }
-    await fetch(`/api/playback/${item.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), keepalive: true });
+    await apiFetch(`/api/playback/${item.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), keepalive: true });
   };
 
   const resetHideTimer = () => {
@@ -113,8 +114,8 @@ export function WatchPage() {
 
   useEffect(() => {
     if (!item) return;
-    fetch(`/api/subtitles/${item.id}`).then((r) => r.json()).then((p) => {
-      const tracks = Array.isArray(p.tracks) ? p.tracks : [];
+    apiFetch(`/api/subtitles/${item.id}`).then((r) => r.json()).then((p) => {
+      const tracks = Array.isArray(p.tracks) ? p.tracks.map((track) => ({ ...track, url: assetUrl(track.url) })) : [];
       setSubtitleTracks(tracks);
       if (tracks.length) setSelectedSubtitleId(`ext:${tracks[0].id}`);
     }).catch(() => setSubtitleTracks([]));
@@ -122,7 +123,7 @@ export function WatchPage() {
 
   useEffect(() => {
     if (!item) return;
-    fetch(`/api/playback/${item.id}`)
+    apiFetch(`/api/playback/${item.id}`)
       .then((r) => r.json())
       .then((p) => {
         const t = Number(p?.playback?.currentTime || 0);
@@ -299,3 +300,4 @@ export function WatchPage() {
     </div>
   );
 }
+

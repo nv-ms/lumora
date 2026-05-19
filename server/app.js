@@ -1,4 +1,6 @@
 const express = require('express');
+const path = require('node:path');
+const fs = require('node:fs');
 
 const healthRoutes = require('./routes/health.routes');
 const mediaRoutes = require('./routes/media.routes');
@@ -7,6 +9,16 @@ const assetRoutes = require('./routes/asset.routes');
 
 const app = express();
 const port = Number(process.env.PORT || 8787);
+const distDir = path.resolve(__dirname, '../dist');
+const hasDist = fs.existsSync(path.join(distDir, 'index.html'));
+
+app.use((req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    if (req.method === 'OPTIONS') return res.status(204).end();
+    return next();
+});
 
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ limit: '20mb', extended: true }));
@@ -19,6 +31,13 @@ app.use('/api', assetRoutes);
 app.use('/api', (req, res) => {
     res.status(404).json({ error: 'Not found' });
 });
+
+if (hasDist) {
+    app.use(express.static(distDir));
+    app.get(/^(?!\/api).*/, (req, res) => {
+        res.sendFile(path.join(distDir, 'index.html'));
+    });
+}
 
 app.use((error, req, res, next) => {
     res.status(500).json({ error: error.message || 'Server error' });

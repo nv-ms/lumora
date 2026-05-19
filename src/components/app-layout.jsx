@@ -2,6 +2,7 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { Search } from "lucide-react";
 import { AppSidebar } from "./app-sidebar";
+import { apiFetch } from "../lib/api";
 
 export function AppLayout() {
   const { pathname } = useLocation();
@@ -14,7 +15,7 @@ export function AppLayout() {
     let alive = true;
     const check = async () => {
       try {
-        const response = await fetch("/api/health");
+        const response = await apiFetch("/api/health");
         if (!alive) return;
         setHostConnected(response.ok);
       } catch {
@@ -70,3 +71,4 @@ export function AppLayout() {
     </div>
   );
 }
+

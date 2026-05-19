@@ -3,6 +3,7 @@ import { Film, Search, Tv, Plus, Eye, Pencil, Trash2, Power, ChevronUp, ChevronD
 import { Link } from "react-router-dom";
 import { useCatalog } from "../lib/catalog-context";
 import { PathPickerModal } from "../components/path-picker-modal";
+import { apiFetch } from "../lib/api";
 
 function Modal({ open, title, onClose, children }) {
   if (!open) return null;
@@ -86,7 +87,7 @@ export function CatalogPage() {
     if (!movieFilePath) return;
     await run(async () => {
       const inferredTitle = movieFilePath.split(/[\\/]/).pop().replace(/\.[^.]+$/, "").replace(/[._]/g, " ").trim();
-      await fetch("/api/library/movie", {
+      await apiFetch("/api/library/movie", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -159,7 +160,7 @@ export function CatalogPage() {
     while (queue.length) {
       const dir = queue.shift();
       const url = `/api/fs/list?path=${encodeURIComponent(dir)}&mode=all`;
-      const res = await fetch(url);
+      const res = await apiFetch(url);
       const data = await res.json();
       const dirs = Array.isArray(data.dirs) ? data.dirs : [];
       const files = Array.isArray(data.files) ? data.files : [];
@@ -236,7 +237,7 @@ export function CatalogPage() {
     if (!episodeFiles.length) return;
 
     await run(async () => {
-      await fetch("/api/library/series", {
+      await apiFetch("/api/library/series", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -261,7 +262,7 @@ export function CatalogPage() {
   const toggleAvailability = async (row) => {
     await run(async () => {
       const endpoint = row.type === "movie" ? `/api/library/movie/${row.id}/update` : `/api/library/series/${row.id}/update`;
-      await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ available: !row.available }) });
+      await apiFetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ available: !row.available }) });
       setMessage(`${row.type === "movie" ? "Movie" : "Series"} updated.`);
     });
   };
@@ -269,7 +270,7 @@ export function CatalogPage() {
   const deleteRow = async (row) => {
     await run(async () => {
       const endpoint = row.type === "movie" ? `/api/library/movie/${row.id}/delete` : `/api/library/series/${row.id}/delete`;
-      await fetch(endpoint, { method: "POST" });
+      await apiFetch(endpoint, { method: "POST" });
       setMessage(`${row.type === "movie" ? "Movie" : "Series"} deleted.`);
     });
   };
@@ -314,7 +315,7 @@ export function CatalogPage() {
       const endpoint = editRow.type === "movie"
         ? `/api/library/movie/${editRow.id}/update`
         : `/api/library/series/${editRow.id}/update`;
-      await fetch(endpoint, {
+      await apiFetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -715,3 +716,5 @@ export function CatalogPage() {
     </div>
   );
 }
+
+
