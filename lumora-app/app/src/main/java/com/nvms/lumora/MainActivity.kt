@@ -1,13 +1,18 @@
 package com.nvms.lumora
 
 import android.annotation.SuppressLint
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceError
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.WebSettings
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
@@ -22,27 +27,31 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.tv.material3.Card
+import kotlinx.coroutines.delay
 import androidx.tv.material3.Button
-import androidx.tv.material3.ButtonDefaults
+import androidx.tv.material3.Card
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.nvms.lumora.ui.theme.LumoraTheme
+import androidx.core.content.edit
+import androidx.core.net.toUri
 
 class MainActivity : ComponentActivity() {
     private val prefsName = "lumora_prefs"
     private val urlKey = "server_url"
+    private val draftKey = "server_url_draft"
 
     @OptIn(ExperimentalTvMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -53,15 +62,24 @@ class MainActivity : ComponentActivity() {
             LumoraTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     var serverUrl by remember { mutableStateOf(prefs.getString(urlKey, "") ?: "") }
-                    var inputUrl by remember { mutableStateOf(serverUrl) }
+                    var inputUrl by remember { mutableStateOf(prefs.getString(draftKey, serverUrl) ?: serverUrl) }
                     var showSetup by remember { mutableStateOf(serverUrl.isBlank()) }
-                    var loading by remember { mutableStateOf(false) }
                     var setupError by remember { mutableStateOf("") }
+
+                    LaunchedEffect(inputUrl, showSetup) {
+                        if (!showSetup) return@LaunchedEffect
+                        delay(5000)
+                        val normalized = normalizeUrl(inputUrl)
+                        prefs.edit { putString(draftKey, normalized) }
+                        if (normalized.isBlank()) return@LaunchedEffect
+                        serverUrl = normalized
+                        prefs.edit { putString(urlKey, normalized).putString(draftKey, normalized)}
+                        showSetup = false
+                    }
 
                     if (showSetup) {
                         UrlSetup(
                             value = inputUrl,
-                            loading = loading,
                             error = setupError,
                             onChange = { inputUrl = it },
                             onSave = {
@@ -69,31 +87,20 @@ class MainActivity : ComponentActivity() {
                                 if (normalized.isBlank()) {
                                     setupError = "Enter a valid URL."
                                 } else {
-                                    loading = true
-                                    setupError = ""
-                                    val ok = healthOk(normalized)
-                                    loading = false
-                                    if (ok) {
-                                        serverUrl = normalized
-                                        prefs.edit().putString(urlKey, normalized).apply()
-                                        showSetup = false
-                                    } else {
-                                        setupError = "Cannot reach server. Check URL and network."
+                                    serverUrl = normalized
+                                    prefs.edit {
+                                        putString(urlKey, normalized).putString(
+                                            draftKey,
+                                            normalized
+                                        )
                                     }
+                                    showSetup = false
                                 }
-                            },
-                            onUseSample = {
-                                val sample = "http://192.168.1.10:8787"
-                                inputUrl = sample
                             }
                         )
                     } else {
                         WebHost(
                             serverUrl = serverUrl,
-                            onChangeServer = {
-                                inputUrl = serverUrl
-                                showSetup = true
-                            },
                             onLoadError = {
                                 setupError = "Page failed to load. Edit server URL."
                                 inputUrl = serverUrl
@@ -106,36 +113,36 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun healthOk(baseUrl: String): Boolean {
-        return try {
-            val url = java.net.URL("$baseUrl/api/health")
-            val conn = (url.openConnection() as java.net.HttpURLConnection).apply {
-                requestMethod = "GET"
-                connectTimeout = 5000
-                readTimeout = 5000
-            }
-            conn.responseCode in 200..299
-        } catch (_: Exception) {
-            false
-        }
-    }
 }
 
 private fun normalizeUrl(value: String): String {
-    val trimmed = value.trim().removeSuffix("/")
-    if (trimmed.isBlank()) return ""
-    return if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) trimmed else "http://$trimmed"
+    val raw = value.trim()
+    if (raw.isBlank()) return ""
+    val withScheme = if (raw.startsWith("http://") || raw.startsWith("https://")) raw else "http://$raw"
+    return try {
+        val parsed = withScheme.toUri()
+        val host = parsed.host ?: return ""
+        val scheme = parsed.scheme ?: "http"
+        val builder = Uri.Builder().scheme(scheme).encodedAuthority(
+            if (parsed.port > 0) "$host:${parsed.port}" else host
+        )
+        val path = parsed.path
+        builder.path(if (path.isNullOrBlank()) "/" else path)
+        if (!parsed.query.isNullOrBlank()) builder.encodedQuery(parsed.encodedQuery)
+        if (!parsed.fragment.isNullOrBlank()) builder.encodedFragment(parsed.encodedFragment)
+        builder.build().toString()
+    } catch (_: Exception) {
+        ""
+    }
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun UrlSetup(
     value: String,
-    loading: Boolean,
     error: String,
     onChange: (String) -> Unit,
-    onSave: () -> Unit,
-    onUseSample: () -> Unit
+    onSave: () -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Card(onClick = {}, modifier = Modifier.width(760.dp)) {
@@ -167,9 +174,8 @@ private fun UrlSetup(
                 Text(text = "Example: http://192.168.1.10:8787")
                 if (error.isNotBlank()) Text(text = error, color = Color(0xFFFF6B6B))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Button(onClick = onUseSample, enabled = !loading, colors = ButtonDefaults.colors()) { Text("Use Example") }
-                    Button(onClick = onSave, enabled = !loading && value.isNotBlank(), colors = ButtonDefaults.colors()) {
-                        Text(if (loading) "Checking..." else "Save and Open")
+                    Button(onClick = onSave, enabled = value.isNotBlank()) {
+                        Text("Save and Open")
                     }
                 }
             }
@@ -180,40 +186,55 @@ private fun UrlSetup(
 @SuppressLint("SetJavaScriptEnabled")
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun WebHost(serverUrl: String, onChangeServer: () -> Unit, onLoadError: () -> Unit) {
-    Box(modifier = Modifier.fillMaxSize()) {
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { context ->
-                WebView(context).apply {
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    settings.mediaPlaybackRequiresUserGesture = false
-                    webViewClient = object : WebViewClient() {
-                        override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
-                            if (request?.isForMainFrame == true) onLoadError()
-                        }
-                    }
-                    webChromeClient = WebChromeClient()
-                    loadUrl(serverUrl)
-                }
-            },
-            update = { webView ->
-                if (webView.url != serverUrl) webView.loadUrl(serverUrl)
-            }
-        )
-
-        Row(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(16.dp)
-        ) {
-            Button(
-                onClick = onChangeServer,
-                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp)
-            ) {
-                Text("Server URL")
-            }
+private fun WebHost(serverUrl: String, onLoadError: () -> Unit) {
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    BackHandler {
+        val webView = webViewRef
+        if (webView != null && webView.canGoBack()) {
+            webView.goBack()
+        } else {
+            (webView?.context as? ComponentActivity)
+                ?.moveTaskToBack(true)
         }
     }
+
+    AndroidView(
+        modifier = Modifier.fillMaxSize(),
+        factory = { context ->
+            WebView(context).apply {
+                webViewRef = this
+                settings.javaScriptEnabled = true
+                settings.domStorageEnabled = true
+                settings.allowFileAccess = true
+                settings.allowContentAccess = true
+                settings.mediaPlaybackRequiresUserGesture = false
+                settings.setSupportZoom(false)
+                settings.loadsImagesAutomatically = true
+                settings.useWideViewPort = true
+                settings.loadWithOverviewMode = true
+                settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                //settings.userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36"
+                webChromeClient = object : WebChromeClient() {
+                    override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage ): Boolean {
+                        android.util.Log.d("WEBVIEW","${consoleMessage.message()} " + "line ${consoleMessage.lineNumber()}")
+                        return true
+                    }
+                }
+                webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(
+                        view: WebView?, request: WebResourceRequest?
+                    ): Boolean {
+                        return false
+                    }
+
+                    override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
+                        if (request?.isForMainFrame == true) {
+                            onLoadError()
+                        }
+                    }
+                }
+                loadUrl("http://192.168.20.106:8787")
+            }
+        }
+    )
 }
