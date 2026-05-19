@@ -1,5 +1,9 @@
-import { health } from "../controllers/health-controller.js";
+const express = require('express');
+const healthController = require('../controllers/health.controller');
 
-export const healthRoutes = [
-  { method: "GET", path: /^\/api\/health$/, handler: health },
-];
+const router = express.Router();
+
+router.get('/health', healthController.health);
+router.get('/catalog', healthController.catalog);
+
+module.exports = router;

@@ -1,19 +1,13 @@
-import {
-  getCatalog,
-  getFiles,
-  uploadFile,
-  getFolders,
-  getFsRoots,
-  getFsList,
-  streamMediaById,
-} from "../controllers/media-controller.js";
+const express = require('express');
+const mediaController = require('../controllers/media.controller');
 
-export const mediaRoutes = [
-  { method: "GET", path: /^\/api\/catalog$/, handler: getCatalog },
-  { method: "GET", path: /^\/api\/files$/, handler: getFiles },
-  { method: "POST", path: /^\/api\/upload$/, handler: uploadFile },
-  { method: "GET", path: /^\/api\/folders$/, handler: getFolders },
-  { method: "GET", path: /^\/api\/fs\/roots$/, handler: getFsRoots },
-  { method: "GET", path: /^\/api\/fs\/list$/, handler: getFsList },
-  { method: "GET", path: /^\/api\/media\/(?<id>[^/]+)$/, handler: streamMediaById },
-];
+const router = express.Router();
+
+router.get('/files', mediaController.files);
+router.post('/upload', mediaController.upload);
+router.get('/folders', mediaController.folders);
+router.get('/fs/roots', mediaController.roots);
+router.get('/fs/list', mediaController.listFs);
+router.get('/media/:id', mediaController.stream);
+
+module.exports = router;

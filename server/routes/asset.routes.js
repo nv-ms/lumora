@@ -1,13 +1,11 @@
-import {
-  getThumbnail,
-  setThumbnailFromDataUrl,
-  listSubtitleTracks,
-  getSubtitleTrack,
-} from "../controllers/asset-controller.js";
+const express = require('express');
+const assetController = require('../controllers/asset.controller');
 
-export const assetRoutes = [
-  { method: "GET", path: /^\/api\/thumbnail\/(?<id>[^/]+)$/, handler: getThumbnail },
-  { method: "POST", path: /^\/api\/thumbnail\/(?<id>[^/]+)$/, handler: setThumbnailFromDataUrl },
-  { method: "GET", path: /^\/api\/subtitles\/(?<mediaId>[^/]+)$/, handler: listSubtitleTracks },
-  { method: "GET", path: /^\/api\/subtitles\/(?<mediaId>[^/]+)\/(?<trackId>[^/]+)$/, handler: getSubtitleTrack },
-];
+const router = express.Router();
+
+router.get('/thumbnail/:id', assetController.thumbGet);
+router.post('/thumbnail/:id', assetController.thumbSet);
+router.get('/subtitles/:mediaId', assetController.subtitlesGet);
+router.get('/subtitles/:mediaId/:trackId', assetController.subtitleTrack);
+
+module.exports = router;
