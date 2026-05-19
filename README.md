@@ -45,6 +45,15 @@ Vite runs at `http://localhost:5173` and proxies `/api` to `http://localhost:878
 npm run build
 ```
 
+## Run server as Windows service
+Run PowerShell as **Administrator**.
+
+```ps1
+function lumora {
+  Start-Process -FilePath "C:\Program Files\nodejs\node.exe" -ArgumentList "server/app.js" -WorkingDirectory "D:\Job\nvms\projects\stream-weaver" -WindowStyle Hidden
+}
+```
+
 ## Media source management
 From **Settings** in the app:
 - Add folder path

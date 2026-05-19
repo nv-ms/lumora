@@ -34,8 +34,16 @@ app.use('/api', (req, res) => {
 
 if (hasDist) {
     app.use(express.static(distDir));
-    app.get(/^(?!\/api).*/, (req, res) => {
-        res.sendFile(path.join(distDir, 'index.html'));
+    app.get(/^(?!\/api).*/, (req, res, next) => {
+        const acceptsHtml = req.accepts('html');
+        const isGetRequest = req.method === 'GET';
+        const hasFileExtension = path.extname(req.path) !== '';
+
+        if (!isGetRequest || !acceptsHtml || hasFileExtension) {
+            return next();
+        }
+
+        return res.sendFile(path.join(distDir, 'index.html'));
     });
 }
 
