@@ -1,17 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Maximize2, Minimize2, MoveHorizontal, Pause, Play, Subtitles, Volume2, VolumeX, X } from "lucide-react";
+import { ArrowLeft, Maximize2, Minimize2, MoveHorizontal, Pause, Play, Subtitles, Volume2, VolumeX } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useCatalog } from "../lib/catalog-context";
-
-const SEEK_STEPS = [10, 20, 30];
-const SEEK_COOLDOWN_MS = 1200;
-
-function fmt(seconds) {
-  const minutes = Math.floor((seconds || 0) / 60);
-  const secs = Math.floor((seconds || 0) % 60);
-  return `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
-}
+import { SubtitlePanel } from "../components/watch/subtitle-panel";
+import { SEEK_COOLDOWN_MS, SEEK_STEPS, actionByX, fmt, isInteractiveTarget } from "../components/watch/player-utils";
 
 export function WatchPage() {
   const { id } = useParams();
@@ -25,6 +18,8 @@ export function WatchPage() {
   const durationRef = useRef(0);
   const seekRef = useRef({ at: 0, step: 0 });
   const cueBaseRef = useRef(new Map());
+  const lastTouchAtRef = useRef(0);
+  const lastSideTapRef = useRef({ at: 0, zone: "" });
 
   const [playing, setPlaying] = useState(true);
   const [muted, setMuted] = useState(false);
@@ -41,18 +36,6 @@ export function WatchPage() {
   const [seekPreview, setSeekPreview] = useState(null);
   const aspectModes = ["contain", "cover", "fill"];
 
-  const isInteractiveTarget = (target) => {
-    if (!(target instanceof Element)) return false;
-    return !!target.closest("button, a, input, select, textarea, [role='button']");
-  };
-
-  const actionByX = (clientX, rect) => {
-    const ratio = (clientX - rect.left) / rect.width;
-    if (ratio < 1 / 3) return "rewind";
-    if (ratio > 2 / 3) return "forward";
-    return "toggle";
-  };
-
   const savePlayback = async (useBeacon = false) => {
     if (!item || !durationRef.current) return;
     const payload = { progress: Math.min(1, currentRef.current / durationRef.current), currentTime: currentRef.current, duration: durationRef.current };
@@ -60,7 +43,7 @@ export function WatchPage() {
       navigator.sendBeacon(`/api/playback/${item.id}`, new Blob([JSON.stringify(payload)], { type: "application/json" }));
       return;
     }
-    await fetch(`/api/playback/${item.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), keepalive: true });
+    await fetch(`/api/playback/${item.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), keepalive: true });
   };
 
   const resetHideTimer = () => {
@@ -188,20 +171,32 @@ export function WatchPage() {
       onMouseMove={resetHideTimer}
       onClick={(e) => {
         if (isInteractiveTarget(e.target)) return;
+        if (Date.now() - lastTouchAtRef.current < 450) return;
+        if (!videoRef.current) return;
+        const action = actionByX(e.clientX, videoRef.current.getBoundingClientRect());
+        if (action !== "toggle") return;
+        setPlaying((v) => !v);
+      }}
+      onDoubleClick={(e) => {
+        if (isInteractiveTarget(e.target)) return;
         if (!videoRef.current) return;
         const action = actionByX(e.clientX, videoRef.current.getBoundingClientRect());
         if (action === "rewind") performSeek(-1);
         if (action === "forward") performSeek(1);
-        if (action === "toggle") setPlaying((v) => !v);
       }}
       onTouchEnd={(e) => {
         if (isInteractiveTarget(e.target)) return;
         const touch = e.changedTouches?.[0];
         if (!touch || !videoRef.current) return;
+        lastTouchAtRef.current = Date.now();
         const action = actionByX(touch.clientX, videoRef.current.getBoundingClientRect());
-        if (action === "rewind") performSeek(-1);
-        if (action === "forward") performSeek(1);
         if (action === "toggle") setPlaying((v) => !v);
+        if (action === "rewind" || action === "forward") {
+          const now = Date.now();
+          const dbl = lastSideTapRef.current.zone === action && now - lastSideTapRef.current.at < 320;
+          lastSideTapRef.current = { at: now, zone: action };
+          if (dbl) performSeek(action === "rewind" ? -1 : 1);
+        }
       }}
     >
       <div className="relative flex flex-1 items-center justify-center overflow-hidden">
@@ -227,8 +222,6 @@ export function WatchPage() {
             setTimeout(applySubtitleLayoutAndTiming, 120);
           }}
           onClick={() => {}}
-          onDoubleClick={(e) => e.preventDefault()}
-          onTouchEnd={() => {}}
         >
           {subtitleTracks.map((track) => (
             <track key={track.id} src={track.url} kind="subtitles" srcLang={track.lang || "und"} label={`ext:${track.id}`} default={`ext:${track.id}` === selectedSubtitleId} />
@@ -236,7 +229,7 @@ export function WatchPage() {
         </video>
 
         {!playing && (
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/95 via-black/70 to-black/80">
+          <div className="pointer-events-none absolute inset-0 bg-linear-to-t from-black/95 via-black/70 to-black/80">
             <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 px-6 text-center">
               <div className="truncate text-3xl font-semibold text-white md:text-4xl">{item.title}</div>
             </div>
@@ -244,7 +237,7 @@ export function WatchPage() {
         )}
         {!!seekPreview && (
           <div className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 px-6 text-center">
-            <div className="mx-auto inline-flex min-w-[260px] items-center justify-between gap-4 rounded-xl border border-white/25 bg-black/85 px-4 py-3 text-white shadow-2xl backdrop-blur-sm">
+            <div className="mx-auto inline-flex min-w-65 items-center justify-between gap-4 rounded-xl border border-white/25 bg-black/85 px-4 py-3 text-white shadow-2xl backdrop-blur-sm">
               <span className="text-xs text-white/70">{seekPreview.amount > 0 ? "Forward" : "Rewind"} ({seekPreview.step}s)</span>
               <span className="text-lg font-semibold tabular-nums">{fmt(seekPreview.target)}</span>
             </div>
@@ -252,11 +245,11 @@ export function WatchPage() {
         )}
 
         <div className={cn("absolute inset-0 transition-opacity duration-300", controlsVisible || subtitlePanelOpen ? "opacity-100" : "pointer-events-none opacity-0")}>
-          <div className="absolute left-0 right-0 top-0 flex items-center justify-between bg-gradient-to-b from-black/65 to-transparent px-6 py-4">
+          <div className="absolute left-0 right-0 top-0 flex items-center justify-between bg-linear-to-b from-black/65 to-transparent px-6 py-4">
             <Link to={item.seriesId ? `/series/${item.seriesId}` : "/"} className="inline-flex items-center gap-2 text-sm text-white/80 hover:text-white"><ArrowLeft className="h-4 w-4" />Back</Link>
             <div className="max-w-md truncate text-xs text-white/70">{item.path}</div>
           </div>
-          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/65 to-transparent px-6 pb-8 pt-20 md:px-10 md:pb-10">
+          <div className="absolute bottom-0 left-0 right-0 bg-linear-to-t from-black/90 via-black/65 to-transparent px-6 pb-8 pt-20 md:px-10 md:pb-10">
             <div className="truncate text-base font-semibold text-white md:text-lg">{item.title}</div>
             <div className="mt-5 flex items-center gap-3 md:gap-4">
               <span className="w-14 text-sm text-white/80">{fmt(current)}</span>
@@ -278,44 +271,17 @@ export function WatchPage() {
         </div>
       </div>
 
-      {subtitlePanelOpen && (
-        <div className="fixed inset-0 z-50 bg-black/40" onClick={() => setSubtitlePanelOpen(false)}>
-          <aside className="absolute right-0 top-0 flex h-full w-[380px] min-h-0 flex-col overflow-hidden border-l border-hairline bg-background" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between border-b border-hairline px-5 py-4">
-              <div className="text-sm font-medium">Subtitles</div>
-              <button onClick={() => setSubtitlePanelOpen(false)} className="grid h-8 w-8 place-items-center rounded-md hover:bg-panel"><X className="h-4 w-4" /></button>
-            </div>
-            <div className="border-b border-hairline p-4">
-              <input
-                value={subtitleQuery}
-                onChange={(e) => setSubtitleQuery(e.target.value)}
-                placeholder="Search subtitle..."
-                className="h-10 w-full rounded-md border border-hairline bg-panel px-3 text-sm outline-none focus:border-foreground/40"
-              />
-            </div>
-            <div className="min-h-0 flex-1 overflow-auto p-4">
-              {!filteredSubtitleOptions.length && <div className="text-sm text-muted-foreground">No matches.</div>}
-              <div className="space-y-2">
-                {filteredSubtitleOptions.map((entry) => (
-                  <button
-                    key={entry.id}
-                    onClick={() => applySubtitleSelection(entry.id)}
-                    className={cn("w-full truncate rounded-md border px-3 py-2 text-left text-sm", selectedSubtitleId === entry.id ? "border-foreground bg-panel-2" : "border-hairline bg-panel hover:bg-panel-2")}
-                    title={entry.label}
-                  >
-                    {entry.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="border-t border-hairline p-4">
-              <div className="text-xs text-muted-foreground">Timing Offset</div>
-              <input type="range" min={-8} max={8} step={0.1} value={subtitleDelay} onChange={(e) => setSubtitleDelay(Number(e.target.value))} className="mt-2 w-full" />
-              <div className="mt-1 text-xs text-muted-foreground">{subtitleDelay.toFixed(1)}s</div>
-            </div>
-          </aside>
-        </div>
-      )}
+      <SubtitlePanel
+        open={subtitlePanelOpen}
+        query={subtitleQuery}
+        setQuery={setSubtitleQuery}
+        options={filteredSubtitleOptions}
+        selectedId={selectedSubtitleId}
+        onSelect={applySubtitleSelection}
+        delay={subtitleDelay}
+        setDelay={setSubtitleDelay}
+        onClose={() => setSubtitlePanelOpen(false)}
+      />
     </div>
   );
 }

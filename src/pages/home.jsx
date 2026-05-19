@@ -71,5 +71,3 @@ function Shelf({ title, items }) {
     </section>
   );
 }
-
-

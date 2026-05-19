@@ -12,7 +12,7 @@ export function Poster({ title, hue, thumbnailUrl, aspect = "poster", className,
     <div
       className={cn(
         "relative w-full overflow-hidden",
-        aspect === "poster" ? "aspect-[2/3]" : "aspect-video",
+        aspect === "poster" ? "aspect-2/3" : "aspect-video",
         "rounded-md ring-1 ring-hairline",
         className,
       )}

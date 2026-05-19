@@ -107,16 +107,16 @@ export function CatalogPage() {
 
   const toggleAvailability = async (row) => {
     await run(async () => {
-      const endpoint = row.type === "movie" ? `/api/library/movie/${row.id}` : `/api/library/series/${row.id}`;
-      await fetch(endpoint, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ available: !row.available }) });
+      const endpoint = row.type === "movie" ? `/api/library/movie/${row.id}/update` : `/api/library/series/${row.id}/update`;
+      await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ available: !row.available }) });
       setMessage(`${row.type === "movie" ? "Movie" : "Series"} updated.`);
     });
   };
 
   const deleteRow = async (row) => {
     await run(async () => {
-      const endpoint = row.type === "movie" ? `/api/library/movie/${row.id}` : `/api/library/series/${row.id}`;
-      await fetch(endpoint, { method: "DELETE" });
+      const endpoint = row.type === "movie" ? `/api/library/movie/${row.id}/delete` : `/api/library/series/${row.id}/delete`;
+      await fetch(endpoint, { method: "POST" });
       setMessage(`${row.type === "movie" ? "Movie" : "Series"} deleted.`);
     });
   };

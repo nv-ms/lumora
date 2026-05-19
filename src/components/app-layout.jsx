@@ -1,12 +1,14 @@
-import { Outlet, useLocation } from "react-router-dom";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { Search } from "lucide-react";
 import { AppSidebar } from "./app-sidebar";
 
 export function AppLayout() {
   const { pathname } = useLocation();
+  const navigate = useNavigate();
   const isPlayer = pathname.startsWith("/watch/");
   const [hostConnected, setHostConnected] = useState(false);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -43,12 +45,22 @@ export function AppLayout() {
         <header className="h-14 shrink-0 border-b border-hairline flex items-center px-6 gap-4">
           <div className="flex items-center gap-2 h-9 px-3 bg-panel rounded-md w-72 max-w-full">
             <Search className="h-3.5 w-3.5 text-muted-foreground" />
-            <input placeholder="Search library" className="bg-transparent text-sm outline-none flex-1 placeholder:text-muted-foreground" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter") return;
+                const q = query.trim();
+                navigate(q ? `/search?q=${encodeURIComponent(q)}` : "/search");
+              }}
+              placeholder="Search library"
+              className="bg-transparent text-sm outline-none flex-1 placeholder:text-muted-foreground"
+            />
             <span className="text-[10px] font-mono text-muted-foreground">CMD+K</span>
           </div>
           <div className="ml-auto flex items-center gap-3 text-xs text-muted-foreground font-mono">
             <span className={`size-1.5 rounded-full ${hostConnected ? "bg-emerald-500" : "bg-rose-500"}`} />
-            {hostConnected ? "HOST CONNECTED" : "HOST DISCONNECTED"}
+            {hostConnected ? "Connected" : "Disconnected"}
           </div>
         </header>
         <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">

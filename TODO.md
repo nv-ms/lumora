@@ -1,5 +1,3 @@
-1. Player
-    a. Gestures & Polishing
 2. Thumbnail
     a. Autogeneration
 3. Catalog
@@ -11,6 +9,7 @@
 5. Production  
     a. Suit for TV
 6. Overall UI Pass
+7. Code Length & Refactor
 
 
 Last 

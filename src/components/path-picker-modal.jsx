@@ -77,7 +77,7 @@ export function PathPickerModal({ open, title, mode, onClose, onPick, multi = fa
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] bg-black/70 p-4 md:p-6" onClick={onClose}>
+    <div className="fixed inset-0 z-60 bg-black/70 p-4 md:p-6" onClick={onClose}>
       <div className="mx-auto h-full w-full max-w-4xl overflow-hidden rounded-2xl border border-hairline bg-background shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex h-16 items-center justify-between border-b border-hairline px-5">
           <h3 className="text-base font-semibold">{title}</h3>
@@ -85,7 +85,7 @@ export function PathPickerModal({ open, title, mode, onClose, onPick, multi = fa
         </div>
         <div className="flex h-[calc(100%-4rem)] min-h-0 flex-col p-5">
           <div className="mb-3 flex flex-wrap items-center gap-2">
-            <select value={currentPath} onChange={(e) => setCurrentPath(e.target.value)} className="h-10 min-w-[220px] rounded-md bg-panel px-3 text-sm">
+            <select value={currentPath} onChange={(e) => setCurrentPath(e.target.value)} className="h-10 min-w-55 rounded-md bg-panel px-3 text-sm">
               {roots.map((root) => <option key={root} value={root}>{root}</option>)}
             </select>
             <button onClick={() => setCurrentPath((p) => normalizeParent(p))} className="h-10 rounded-md bg-panel px-3 text-sm hover:bg-panel-2">Up</button>
