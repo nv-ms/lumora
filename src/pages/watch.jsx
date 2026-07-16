@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Maximize2, Minimize2, MoveHorizontal, Pause, Play, Subtitles, Volume2, VolumeX } from "lucide-react";
+import { ArrowLeft, Gauge, Maximize2, Minimize2, Pause, Play, RotateCcw, RotateCw, Subtitles, Volume2, VolumeX } from "lucide-react";
 import Hls from "hls.js";
 import { cn } from "../lib/utils";
 import { apiFetch, apiUrl, assetUrl } from "../lib/api";
@@ -40,7 +40,8 @@ export function WatchPage() {
   const [resumeAt, setResumeAt] = useState(0);
   const [playback, setPlayback] = useState({ state: "probing", method: "", percentage: null, error: "", url: "", audioTracks: [], selectedAudioStreamIndex: null });
   const [requestedAudio, setRequestedAudio] = useState(undefined);
-  const aspectModes = ["contain", "cover", "fill"];
+  const [playbackSpeed, setPlaybackSpeed] = useState(1);
+  const aspectModes = ["contain", "cover"];
 
   const savePlayback = async (useBeacon = false) => {
     if (!item || !durationRef.current) return;
@@ -55,7 +56,7 @@ export function WatchPage() {
   const resetHideTimer = () => {
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     setControlsVisible(true);
-    if (playing && !subtitlePanelOpen) hideTimerRef.current = setTimeout(() => setControlsVisible(false), 2500);
+    if (playing && !subtitlePanelOpen) hideTimerRef.current = setTimeout(() => setControlsVisible(false), 4000);
   };
 
   const performSeek = (direction) => {
@@ -139,9 +140,11 @@ export function WatchPage() {
   useEffect(() => {
     const onKeyDown = (event) => {
       if (!videoRef.current) return;
+      if (subtitlePanelOpen || isInteractiveTarget(event.target)) return;
       if (event.key === "ArrowLeft") { event.preventDefault(); performSeek(-1); }
       if (event.key === "ArrowRight") { event.preventDefault(); performSeek(1); }
-      if (event.key === " ") { event.preventDefault(); setPlaying((v) => !v); }
+      if (event.key === " " || event.key === "Enter") { event.preventDefault(); setPlaying((v) => !v); }
+      if (event.key === "ArrowUp" || event.key === "ArrowDown") { event.preventDefault(); setControlsVisible(true); resetHideTimer(); }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -159,6 +162,7 @@ export function WatchPage() {
   useEffect(() => { resetHideTimer(); return () => hideTimerRef.current && clearTimeout(hideTimerRef.current); }, [playing, subtitlePanelOpen]);
   useEffect(() => { const v = videoRef.current; if (!v) return; if (playing) v.play().catch(() => setPlaying(false)); else v.pause(); }, [playing, item?.id]);
   useEffect(() => { const v = videoRef.current; if (v) v.muted = muted; }, [muted]);
+  useEffect(() => { const v = videoRef.current; if (v) v.playbackRate = playbackSpeed; }, [playbackSpeed]);
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return undefined;
@@ -219,7 +223,7 @@ export function WatchPage() {
   }, [item?.id]);
 
   if (!item) return <div className="p-12 text-sm text-muted-foreground">Title not found.</div>;
-  const AspectIcon = fitMode === "contain" ? Minimize2 : fitMode === "cover" ? Maximize2 : MoveHorizontal;
+  const AspectIcon = fitMode === "contain" ? Minimize2 : Maximize2;
   const subtitleOptions = [
     { id: "off", label: "Off" },
     ...subtitleTracks.map((track) => ({ id: `ext:${track.id}`, label: track.label })),
@@ -287,8 +291,8 @@ export function WatchPage() {
           <div className="absolute inset-0 z-20 grid place-items-center bg-black/90 px-6 text-center">
             <div className="max-w-md">
               {playback.state !== "failed" && <div className="mx-auto mb-4 h-9 w-9 animate-spin rounded-full border-2 border-white/25 border-t-white" />}
-              <div className="text-lg font-semibold text-white">{playback.state === "failed" ? "Unable to play this media" : playback.state === "queued" ? "Queued for preparation" : "Preparing playback"}</div>
-              {!!playback.method && <div className="mt-2 text-sm text-white/65">{playback.method}{playback.percentage !== null ? ` · ${playback.percentage}%` : ""}</div>}
+              <div className="text-lg font-semibold text-white">{playback.state === "failed" ? "Unable to play this media" : playback.state === "queued" ? "Waiting to prepare" : playback.method === "audio-transcode" ? "Optimizing audio for this device" : playback.method === "full-transcode" ? "Optimizing video for this device" : "Preparing video for this device"}</div>
+              {playback.percentage !== null && <div className="mt-2 text-sm text-white/65">{playback.percentage}%</div>}
               {!!playback.error && <div className="mt-3 text-sm text-rose-300">{playback.error}</div>}
               {playback.state === "failed" && <div className="mt-5 flex justify-center gap-2"><button onClick={() => window.location.reload()} className="rounded-md bg-white px-4 py-2 text-sm text-black">Retry</button><Link to={item.seriesId ? `/series/${item.seriesId}` : "/"} className="rounded-md bg-white/10 px-4 py-2 text-sm text-white">Back</Link></div>}
             </div>
@@ -312,9 +316,9 @@ export function WatchPage() {
         )}
 
         <div className={cn("absolute inset-0 transition-opacity duration-300", controlsVisible || subtitlePanelOpen ? "opacity-100" : "pointer-events-none opacity-0")}>
-          <div className="absolute left-0 right-0 top-0 flex items-center justify-between bg-linear-to-b from-black/65 to-transparent px-6 py-4">
-            <Link to={item.seriesId ? `/series/${item.seriesId}` : "/"} className="inline-flex items-center gap-2 text-sm text-white/80 hover:text-white"><ArrowLeft className="h-4 w-4" />Back</Link>
-            <div className="max-w-md truncate text-xs text-white/70">{item.path}</div>
+          <div className="absolute left-0 right-0 top-0 flex items-center gap-4 bg-linear-to-b from-black/65 to-transparent px-6 py-4">
+            <Link aria-label="Back" title="Back" to={item.seriesId ? `/series/${item.seriesId}` : "/"} className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-white/10 text-white outline-2 outline-offset-2 hover:bg-white/20 focus-visible:outline"><ArrowLeft className="h-5 w-5" /></Link>
+            <div className="min-w-0"><div className="truncate text-lg font-semibold text-white">{item.seriesTitle || item.title}</div><div className="truncate text-sm text-white/70">{item.seriesId ? `S${String(item.season || 0).padStart(2, "0")} E${String(item.number || 0).padStart(2, "0")} - ${item.title}` : ""}</div></div>
           </div>
           <div className="absolute bottom-0 left-0 right-0 bg-linear-to-t from-black/90 via-black/65 to-transparent px-6 pb-8 pt-20 md:px-10 md:pb-10">
             <div className="truncate text-base font-semibold text-white md:text-lg">{item.title}</div>
@@ -327,15 +331,16 @@ export function WatchPage() {
               <span className="w-20 text-right text-sm text-white/80">-{fmt(Math.max(0, duration - current))}</span>
             </div>
             <div className="mt-5 flex items-center gap-5 md:gap-7">
-              <button onClick={() => setPlaying((v) => !v)} className="grid h-14 w-14 place-items-center rounded-full bg-white text-black">{playing ? <Pause className="h-6 w-6 fill-current" /> : <Play className="h-6 w-6 fill-current" />}</button>
+              <div className="flex items-center gap-3">
+                <button onClick={() => performSeek(-1)} className="grid h-12 w-12 place-items-center rounded-md bg-white/10" title="Back 10 seconds"><RotateCcw className="h-5 w-5" /></button>
+                <button onClick={() => setPlaying((v) => !v)} className="grid h-14 w-14 place-items-center rounded-full bg-white text-black">{playing ? <Pause className="h-6 w-6 fill-current" /> : <Play className="h-6 w-6 fill-current" />}</button>
+                <button onClick={() => performSeek(1)} className="grid h-12 w-12 place-items-center rounded-md bg-white/10" title="Forward 10 seconds"><RotateCw className="h-5 w-5" /></button>
+              </div>
               <div className="ml-auto flex items-center gap-3">
-                {playback.audioTracks.length > 1 && <select value={playback.selectedAudioStreamIndex ?? ""} onChange={(e) => {
-                  const retainedTime = videoRef.current?.currentTime || 0;
-                  setResumeAt(retainedTime); setRequestedAudio(Number(e.target.value));
-                }} className="h-12 max-w-40 rounded-md bg-white/10 px-2 text-sm text-white" title="Audio track">{playback.audioTracks.map((track) => <option key={track.index} value={track.index}>{track.title || track.language || `Audio ${track.index}`}</option>)}</select>}
                 <button onClick={() => setMuted((v) => !v)} className="grid h-12 w-12 place-items-center rounded-md bg-white/10 text-white hover:bg-white/20" title={muted ? "Unmute" : "Mute"}>{muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}</button>
-                <button onClick={() => { const next = !subtitlePanelOpen; setSubtitlePanelOpen(next); if (next) setControlsVisible(true); }} className={cn("grid h-12 w-12 place-items-center rounded-md", subtitlePanelOpen ? "bg-white text-black" : "bg-white/10 text-white hover:bg-white/20")} title="Subtitles"><Subtitles className="h-5 w-5" /></button>
-                <button onClick={toggleAspectMode} className="grid h-12 w-12 place-items-center rounded-md bg-white/10 text-white hover:bg-white/20" title={`Aspect: ${fitMode}`}><AspectIcon className="h-5 w-5" /></button>
+                <button aria-label="Audio and subtitles" onClick={() => { const next = !subtitlePanelOpen; setSubtitlePanelOpen(next); if (next) setControlsVisible(true); }} className={cn("grid h-11 w-11 place-items-center rounded-md outline-2 outline-offset-2 focus-visible:outline", subtitlePanelOpen ? "bg-white text-black" : "bg-white/10 text-white hover:bg-white/20")} title="Audio and subtitles"><Subtitles className="h-5 w-5" /></button>
+                <label aria-label="Playback speed" title={`Playback speed: ${playbackSpeed}x`} className={cn("relative grid h-11 w-11 place-items-center rounded-md outline-2 outline-offset-2 focus-within:outline", playbackSpeed !== 1 ? "bg-white text-black" : "bg-white/10 text-white")}><Gauge className="h-5 w-5" /><select aria-label="Playback speed" value={playbackSpeed} onChange={(event) => setPlaybackSpeed(Number(event.target.value))} className="absolute inset-0 cursor-pointer opacity-0"><option value={0.5}>0.5x</option><option value={0.75}>0.75x</option><option value={1}>1x</option><option value={1.25}>1.25x</option><option value={1.5}>1.5x</option></select></label>
+                <button aria-label="Fit or crop video" onClick={toggleAspectMode} className={cn("grid h-11 w-11 place-items-center rounded-md outline-2 outline-offset-2 hover:bg-white/20 focus-visible:outline", fitMode === "cover" ? "bg-white text-black" : "bg-white/10 text-white")} title={`Aspect: ${fitMode}`}><AspectIcon className="h-5 w-5" /></button>
               </div>
             </div>
           </div>
@@ -351,6 +356,9 @@ export function WatchPage() {
         onSelect={applySubtitleSelection}
         delay={subtitleDelay}
         setDelay={setSubtitleDelay}
+        audioTracks={playback.audioTracks}
+        selectedAudioStreamIndex={playback.selectedAudioStreamIndex}
+        onSelectAudio={(audioStreamIndex) => { const retainedTime = videoRef.current?.currentTime || 0; setResumeAt(retainedTime); setRequestedAudio(audioStreamIndex); setSubtitlePanelOpen(false); }}
         onClose={() => setSubtitlePanelOpen(false)}
       />
     </div>

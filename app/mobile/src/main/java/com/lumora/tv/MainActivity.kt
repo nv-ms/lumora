@@ -1,14 +1,23 @@
 package com.lumora.tv
 
 import android.os.Bundle
+import android.annotation.SuppressLint
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.lumora.tv.ui.LumoraApp
+import com.lumora.tv.ui.RemoteKeys
 
+@SuppressLint("RestrictedApi")
 class MainActivity : ComponentActivity() {
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_DOWN && RemoteKeys.handler?.invoke(event.keyCode) == true) return true
+        return super.dispatchKeyEvent(event)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)

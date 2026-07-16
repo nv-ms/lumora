@@ -9,6 +9,7 @@ import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
@@ -18,6 +19,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.*
@@ -25,6 +27,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.ColorFilter
@@ -34,6 +38,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -77,6 +82,8 @@ private val Foreground = Color(0xFFF2F2F2)
 private val Muted = Color(0xFF929292)
 private val Danger = Color(0xFFFF7580)
 private val Success = Color(0xFF55D58A)
+
+object RemoteKeys { var handler: ((Int) -> Boolean)? = null }
 
 private sealed interface Screen {
     data object Home : Screen; data object Movies : Screen; data object Series : Screen; data object History : Screen
@@ -265,36 +272,77 @@ private fun SettingsPage(api: LumoraApi, refreshCatalog: () -> Unit) {
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
 private fun PlayerScreen(api: LumoraApi, media: MediaEntry, back: () -> Unit) {
-    val context = LocalContext.current; val scope = rememberCoroutineScope(); val player = remember { ExoPlayer.Builder(context).build() }; val mediaSession = remember(player) { MediaSession.Builder(context, player).build() }
-    var info by remember { mutableStateOf<PlaybackInfo?>(null) }; var external by remember { mutableStateOf(emptyList<SubtitleTrack>()) }; var selectedSubtitle by remember { mutableStateOf<SubtitleTrack?>(null) }; var subtitlePanel by remember { mutableStateOf(false) }; var audioPanel by remember { mutableStateOf(false) }; var controlsVisible by remember { mutableStateOf(true) }; var error by remember { mutableStateOf("") }; var playbackState by remember { mutableIntStateOf(Player.STATE_IDLE) }; var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }; var resume by remember { mutableLongStateOf(0L) }
+    val context = LocalContext.current; val scope = rememberCoroutineScope(); val player = remember { ExoPlayer.Builder(context).setSeekBackIncrementMs(10_000).setSeekForwardIncrementMs(10_000).build() }; val mediaSession = remember(player) { MediaSession.Builder(context, player).build() }
+    var info by remember { mutableStateOf<PlaybackInfo?>(null) }; var external by remember { mutableStateOf(emptyList<SubtitleTrack>()) }; var selectedSubtitle by remember { mutableStateOf<SubtitleTrack?>(null) }; var tracksPanel by remember { mutableStateOf(false) }; var speedPanel by remember { mutableStateOf(false) }; var error by remember { mutableStateOf("") }; var playbackState by remember { mutableIntStateOf(Player.STATE_IDLE) }; var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }; var resume by remember { mutableLongStateOf(0L) }; var playerView by remember { mutableStateOf<RemotePlayerView?>(null) }
     fun load(audioIndex: Int? = null, keepPosition: Long = resume) { scope.launch { runCatching { info = api.prepare(media.id, audioIndex); external = api.subtitleTracks(media.id); val prepared = info ?: return@runCatching; if (prepared.error.isNotEmpty()) error = prepared.error else { val subtitles = selectedSubtitle?.let { listOf(MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(it.url)).setMimeType(MimeTypes.TEXT_VTT).setLanguage(it.language).setSelectionFlags(C.SELECTION_FLAG_DEFAULT).build()) }.orEmpty(); player.setMediaItem(MediaItem.Builder().setMediaId(media.id).setUri(prepared.url).setMediaMetadata(MediaMetadata.Builder().setTitle(media.title).setArtist(media.seriesTitle.ifEmpty { "Lumora" }).build()).setSubtitleConfigurations(subtitles).build()); player.prepare(); if (keepPosition > 0) player.seekTo(keepPosition); player.playWhenReady = true } }.onFailure { error = it.message.orEmpty() } } }
     LaunchedEffect(media.id) { resume = api.resumeTime(media.id); load() }
     LaunchedEffect(selectedSubtitle?.id) { if (info?.url?.isNotEmpty() == true) load(info?.selectedAudio, player.currentPosition) }
     LaunchedEffect(player) { while (true) { delay(5000); runCatching { api.saveProgress(media.id, player.currentPosition, player.duration) } } }
     DisposableEffect(player, mediaSession) { val listener = object : Player.Listener { override fun onPlaybackStateChanged(state: Int) { playbackState = state }; override fun onPlayerError(e: androidx.media3.common.PlaybackException) { error = e.message ?: "Playback failed" } }; player.addListener(listener); onDispose { player.removeListener(listener); mediaSession.release(); player.release() } }
-    BackHandler { if (subtitlePanel || audioPanel) { subtitlePanel = false; audioPanel = false } else back() }
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
-        AndroidView(factory = { context -> (LayoutInflater.from(context).inflate(R.layout.lumora_player_view, null, false) as PlayerView).apply { this.player = player; findViewById<android.view.View>(androidx.media3.ui.R.id.exo_settings)?.visibility = android.view.View.GONE; setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { visibility -> controlsVisible = visibility == android.view.View.VISIBLE }); layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT) } }, update = { it.resizeMode = resizeMode }, modifier = Modifier.fillMaxSize())
-        if (controlsVisible || subtitlePanel || audioPanel) {
-            Row(Modifier.align(Alignment.TopStart).fillMaxWidth().background(Color.Black.copy(alpha = .62f)).padding(horizontal = 24.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) { ActionButton("Back", icon = Icons.Default.ArrowBack, onClick = back); Spacer(Modifier.weight(1f)); Text(media.path, color = Muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-            Row(Modifier.align(Alignment.BottomEnd).padding(end = 24.dp, bottom = 82.dp)) { if ((info?.audioTracks?.size ?: 0) > 1) { ActionButton("Audio", icon = Icons.Default.VolumeUp) { audioPanel = !audioPanel; subtitlePanel = false }; Spacer(Modifier.width(8.dp)) }; ActionButton("Subtitles", icon = Icons.Default.Subtitles) { subtitlePanel = !subtitlePanel; audioPanel = false }; Spacer(Modifier.width(8.dp)); ActionButton(if (resizeMode == AspectRatioFrameLayout.RESIZE_MODE_FIT) "Fit" else "Fill", icon = Icons.Default.AspectRatio) { resizeMode = if (resizeMode == AspectRatioFrameLayout.RESIZE_MODE_FIT) AspectRatioFrameLayout.RESIZE_MODE_FILL else AspectRatioFrameLayout.RESIZE_MODE_FIT } }
+    SideEffect { RemoteKeys.handler = { keyCode ->
+        if (tracksPanel || speedPanel || playerView?.isControllerFullyVisible != false) false else when (keyCode) {
+            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> { if (player.isPlaying) player.pause() else player.play(); true }
+            KeyEvent.KEYCODE_DPAD_LEFT -> { player.seekBack(); true }
+            KeyEvent.KEYCODE_DPAD_RIGHT -> { player.seekForward(); true }
+            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> { playerView?.showController(); true }
+            else -> false
         }
-        if (info?.url.isNullOrEmpty() && error.isEmpty()) LoadingState(if (info?.state == "queued") "Queued for preparation" else "Preparing playback ${info?.percentage?.let { "· $it%" }.orEmpty()}")
+    } }
+    DisposableEffect(Unit) { onDispose { RemoteKeys.handler = null } }
+    LaunchedEffect(tracksPanel, speedPanel, playerView) {
+        val panelOpen = tracksPanel || speedPanel
+        playerView?.isFocusable = !panelOpen
+        playerView?.descendantFocusability = if (panelOpen) ViewGroup.FOCUS_BLOCK_DESCENDANTS else ViewGroup.FOCUS_AFTER_DESCENDANTS
+        if (panelOpen) { playerView?.clearFocus(); playerView?.hideController() } else playerView?.requestFocus()
+    }
+    BackHandler { if (tracksPanel || speedPanel) { tracksPanel = false; speedPanel = false; playerView?.showController() } else back() }
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
+        AndroidView(factory = { context -> (LayoutInflater.from(context).inflate(R.layout.lumora_player_view, null, false) as RemotePlayerView).apply {
+            this.player = player; playerView = this; controllerShowTimeoutMs = 4000
+            findViewById<android.widget.TextView>(R.id.lumora_player_title)?.text = media.seriesTitle.ifEmpty { media.title }
+            findViewById<android.widget.TextView>(R.id.lumora_player_subtitle)?.text = if (media.seriesId.isNotEmpty()) "S%02d E%02d · %s".format(media.season, media.number, media.title) else ""
+            findViewById<android.view.View>(R.id.lumora_back)?.setOnClickListener { back() }
+            findViewById<android.view.View>(R.id.lumora_tracks)?.setOnClickListener { hideController(); tracksPanel = true }
+            findViewById<android.view.View>(R.id.lumora_speed)?.setOnClickListener { hideController(); speedPanel = true }
+            findViewById<android.view.View>(R.id.lumora_aspect)?.setOnClickListener { resizeMode = if (resizeMode == AspectRatioFrameLayout.RESIZE_MODE_FIT) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT; it.isSelected = resizeMode == AspectRatioFrameLayout.RESIZE_MODE_ZOOM }
+            findViewById<android.widget.Button>(androidx.media3.ui.R.id.exo_rew_with_amount)?.apply { backgroundTintList = null; setBackgroundResource(R.drawable.player_center_background) }
+            findViewById<android.view.View>(androidx.media3.ui.R.id.exo_play_pause)?.setBackgroundResource(R.drawable.player_center_background)
+            findViewById<android.widget.Button>(androidx.media3.ui.R.id.exo_ffwd_with_amount)?.apply { backgroundTintList = null; setBackgroundResource(R.drawable.player_center_background) }
+            layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT); requestFocus()
+        } }, update = { it.resizeMode = resizeMode }, modifier = Modifier.fillMaxSize().focusable())
+        if (info?.url.isNullOrEmpty() && error.isEmpty()) LoadingState(preparationLabel(info))
         if (error.isNotEmpty()) ErrorState(error) { error = ""; load(info?.selectedAudio, player.currentPosition) }
-        if (subtitlePanel) TrackPanel("Subtitles", listOf<SubtitleTrack?>(null) + external + (info?.subtitles ?: emptyList()), selectedSubtitle, label = { it?.label ?: "Off" }, select = { selectedSubtitle = it; subtitlePanel = false }, Modifier.align(Alignment.CenterEnd))
-        if (audioPanel) TrackPanel("Audio", info?.audioTracks.orEmpty(), info?.audioTracks?.find { it.index == info?.selectedAudio }, label = { it.title.ifEmpty { "${it.language} · ${it.codec} ${it.channels}ch" } }, select = { val time = player.currentPosition; info = info?.copy(url = "", selectedAudio = it.index); audioPanel = false; load(it.index, time) }, Modifier.align(Alignment.CenterEnd))
+        if (tracksPanel) PlayerTracksPanel(info, external, selectedSubtitle, close = { tracksPanel = false; playerView?.showController() }, selectSubtitle = { selectedSubtitle = it; tracksPanel = false }, selectAudio = { val time = player.currentPosition; info = info?.copy(url = "", selectedAudio = it.index); tracksPanel = false; load(it.index, time) }, Modifier.align(Alignment.CenterEnd))
+        if (speedPanel) TrackPanel("Playback speed", listOf(.5f, .75f, 1f, 1.25f, 1.5f), player.playbackParameters.speed, label = { "${it}x" }, select = { player.setPlaybackSpeed(it); playerView?.findViewById<android.view.View>(R.id.lumora_speed)?.isSelected = it != 1f; speedPanel = false; playerView?.showController() }, Modifier.align(Alignment.CenterEnd))
     }
 }
 
-@Composable private fun <T> TrackPanel(title: String, tracks: List<T>, selected: T?, label: (T) -> String, select: (T) -> Unit, modifier: Modifier = Modifier) { Column(modifier.width(370.dp).fillMaxHeight().background(Bg).padding(20.dp)) { Text(title, color = Foreground, fontSize = 18.sp); Spacer(Modifier.height(18.dp)); LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { items(tracks) { track -> ActionButton(label(track), Modifier.fillMaxWidth(), selected = track == selected) { select(track) } } } } }
+private fun preparationLabel(info: PlaybackInfo?) = when (info?.state) { "queued" -> "Waiting to prepare"; "processing" -> when (info.method) { "audio-transcode" -> "Optimizing audio for this TV"; "full-transcode" -> "Optimizing video for this TV"; else -> "Preparing video for this TV" } + info.percentage?.let { " · $it%" }.orEmpty(); else -> "Starting video" }
+
+@Composable
+private fun PlayerTracksPanel(info: PlaybackInfo?, external: List<SubtitleTrack>, selectedSubtitle: SubtitleTrack?, close: () -> Unit, selectSubtitle: (SubtitleTrack?) -> Unit, selectAudio: (AudioTrack) -> Unit, modifier: Modifier = Modifier) {
+    var tab by remember { mutableStateOf(if ((info?.audioTracks?.size ?: 0) > 1) "audio" else "subtitles") }
+    val initialFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { initialFocus.requestFocus() }
+    Column(modifier.width(380.dp).fillMaxHeight().background(Bg).padding(22.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) { Text("Audio & Subtitles", color = Foreground, fontSize = 20.sp); Spacer(Modifier.weight(1f)); ActionButton("Close", onClick = close) }
+        Spacer(Modifier.height(18.dp)); Row { ActionButton("Audio", Modifier.focusRequester(initialFocus), selected = tab == "audio") { tab = "audio" }; Spacer(Modifier.width(8.dp)); ActionButton("Subtitles", selected = tab == "subtitles") { tab = "subtitles" } }; Spacer(Modifier.height(18.dp))
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (tab == "audio") items(info?.audioTracks.orEmpty()) { track -> ActionButton(track.title.ifEmpty { "${track.language} · ${track.channels}ch" }, Modifier.fillMaxWidth(), selected = track.index == info?.selectedAudio) { selectAudio(track) } }
+            else { item { ActionButton("Off", Modifier.fillMaxWidth(), selected = selectedSubtitle == null) { selectSubtitle(null) } }; items(external + info?.subtitles.orEmpty()) { track -> ActionButton(track.label, Modifier.fillMaxWidth(), selected = track.id == selectedSubtitle?.id) { selectSubtitle(track) } } }
+        }
+    }
+}
+
+@Composable private fun <T> TrackPanel(title: String, tracks: List<T>, selected: T?, label: (T) -> String, select: (T) -> Unit, modifier: Modifier = Modifier) { val initialFocus = remember { FocusRequester() }; LaunchedEffect(Unit) { initialFocus.requestFocus() }; Column(modifier.width(370.dp).fillMaxHeight().background(Bg).padding(20.dp)) { Text(title, color = Foreground, fontSize = 18.sp); Spacer(Modifier.height(18.dp)); LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { itemsIndexed(tracks) { index, track -> ActionButton(label(track), Modifier.fillMaxWidth().then(if (index == 0) Modifier.focusRequester(initialFocus) else Modifier), selected = track == selected) { select(track) } } } } }
 
 @Composable private fun PosterCard(title: String, thumbnail: String, meta: String, click: () -> Unit) { FocusBox(click, Modifier.width(175.dp)) { Column { Poster(title, thumbnail, Modifier.fillMaxWidth(), 2f / 3f); Spacer(Modifier.height(8.dp)); Text(title, color = Foreground, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis); Text(meta, color = Muted, fontSize = 10.sp) } } }
 @Composable private fun Poster(title: String, url: String, modifier: Modifier, aspect: Float) { val bitmap by rememberBitmap(url); Box(modifier.aspectRatio(aspect).clip(RoundedCornerShape(6.dp)).background(Color(0xFF292929)), contentAlignment = Alignment.BottomStart) { if (bitmap != null) Image(bitmap!!.asImageBitmap(), title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop); Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = if (bitmap != null) .27f else 0f))); Text(title, color = Color(0xFFD6D6D6), fontWeight = FontWeight.SemiBold, fontSize = 13.sp, modifier = Modifier.padding(12.dp), maxLines = 2) } }
 @Composable private fun rememberBitmap(url: String): State<Bitmap?> = produceState(null, url) { if (url.isNotEmpty()) value = withContext(Dispatchers.IO) { runCatching { URL(url).openStream().use(BitmapFactory::decodeStream) }.getOrNull() } }
-@Composable private fun FocusBox(onClick: () -> Unit, modifier: Modifier = Modifier, active: Boolean = false, content: @Composable () -> Unit) { var focused by remember { mutableStateOf(false) }; Box(modifier.onFocusChanged { focused = it.isFocused }.clip(RoundedCornerShape(7.dp)).background(if (focused || active) Panel2 else Color.Transparent).clickable(onClick = onClick).focusable().padding(if (focused) 3.dp else 0.dp)) { content() } }
-@Composable private fun ActionButton(label: String, modifier: Modifier = Modifier, selected: Boolean = false, danger: Boolean = false, icon: ImageVector? = null, onClick: () -> Unit) { var focused by remember { mutableStateOf(false) }; Box(modifier.onFocusChanged { focused = it.isFocused }.clip(RoundedCornerShape(6.dp)).background(if (focused || selected) Foreground else Panel2).clickable(onClick = onClick).focusable().padding(horizontal = 16.dp, vertical = 11.dp), contentAlignment = Alignment.Center) { Row(verticalAlignment = Alignment.CenterVertically) { if (icon != null) { VectorIcon(icon, if (focused || selected) Color.Black else if (danger) Danger else Foreground, Modifier.size(16.dp)); Spacer(Modifier.width(7.dp)) }; Text(label, color = if (focused || selected) Color.Black else if (danger) Danger else Foreground, fontSize = 12.sp, maxLines = 1) } } }
+@Composable private fun FocusBox(onClick: () -> Unit, modifier: Modifier = Modifier, active: Boolean = false, content: @Composable () -> Unit) { var focused by remember { mutableStateOf(false) }; Box(modifier.onFocusChanged { focused = it.isFocused }.border(if (focused) 2.dp else 0.dp, if (focused) Color.White else Color.Transparent, RoundedCornerShape(7.dp)).padding(if (focused) 3.dp else 0.dp).clip(RoundedCornerShape(7.dp)).background(if (focused || active) Panel2 else Color.Transparent).clickable(onClick = onClick).focusable()) { content() } }
+@Composable private fun ActionButton(label: String, modifier: Modifier = Modifier, selected: Boolean = false, danger: Boolean = false, icon: ImageVector? = null, onClick: () -> Unit) { var focused by remember { mutableStateOf(false) }; val shape = RoundedCornerShape(6.dp); Box(modifier.onFocusChanged { focused = it.isFocused }.border(if (focused) 2.dp else 0.dp, if (focused) Color.White else Color.Transparent, shape).padding(if (focused) 3.dp else 0.dp).border(if (focused && selected) 2.dp else 0.dp, if (focused && selected) Color.Black else Color.Transparent, shape).clip(shape).background(if (selected) Foreground else Panel2).clickable(onClick = onClick).focusable().padding(horizontal = 16.dp, vertical = 11.dp), contentAlignment = Alignment.Center) { Row(verticalAlignment = Alignment.CenterVertically) { if (icon != null) { VectorIcon(icon, if (selected) Color.Black else if (danger) Danger else Foreground, Modifier.size(16.dp)); Spacer(Modifier.width(7.dp)) }; Text(label, color = if (selected) Color.Black else if (danger) Danger else Foreground, fontSize = 12.sp, maxLines = 1) } } }
 @Composable private fun VectorIcon(icon: ImageVector, tint: Color, modifier: Modifier = Modifier) { Image(icon, null, modifier, colorFilter = ColorFilter.tint(tint)) }
-@Composable private fun Input(value: String, change: (String) -> Unit, placeholder: String, modifier: Modifier, onSubmit: (() -> Unit)? = null) { BasicTextField(value, change, modifier.background(Panel, RoundedCornerShape(6.dp)).padding(horizontal = 14.dp, vertical = 12.dp).onPreviewKeyEvent { if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_ENTER && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN && onSubmit != null) { onSubmit(); true } else false }, textStyle = TextStyle(Foreground, 13.sp), cursorBrush = SolidColor(Foreground), singleLine = true, decorationBox = { inner -> if (value.isEmpty()) Text(placeholder, color = Muted, fontSize = 13.sp) else inner() }) }
+@Composable private fun Input(value: String, change: (String) -> Unit, placeholder: String, modifier: Modifier, onSubmit: (() -> Unit)? = null) { var focused by remember { mutableStateOf(false) }; val keyboard = LocalSoftwareKeyboardController.current; LaunchedEffect(focused) { if (focused) { delay(120); keyboard?.hide() } }; BasicTextField(value, change, modifier.onFocusChanged { focused = it.isFocused }.border(if (focused) 2.dp else 1.dp, if (focused) Color.White else Hairline, RoundedCornerShape(6.dp)).background(Panel, RoundedCornerShape(6.dp)).padding(horizontal = 14.dp, vertical = 12.dp).onPreviewKeyEvent { if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_ENTER && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) { if (value.isNotBlank() && onSubmit != null) onSubmit() else keyboard?.show(); true } else false }, textStyle = TextStyle(Foreground, 13.sp), cursorBrush = SolidColor(Foreground), singleLine = true, decorationBox = { inner -> if (value.isEmpty()) Text(placeholder, color = Muted, fontSize = 13.sp) else inner() }) }
 @Composable private fun PageTitle(title: String, subtitle: String) { Text(title, color = Foreground, fontSize = 26.sp, fontWeight = FontWeight.SemiBold); Text(subtitle, color = Muted, fontSize = 13.sp) }
 @Composable private fun Progress(value: Float, modifier: Modifier) { Box(modifier.height(4.dp).background(Panel, RoundedCornerShape(4.dp))) { Box(Modifier.fillMaxHeight().fillMaxWidth(value.coerceIn(0f, 1f)).background(Foreground, RoundedCornerShape(4.dp))) } }
 @Composable private fun RowScope.PlayerProgress(position: Long, duration: Long, seek: (Long) -> Unit) { val fraction = if (duration > 0) position.toFloat() / duration else 0f; Box(Modifier.weight(1f).height(28.dp).padding(vertical = 11.dp).clip(RoundedCornerShape(4.dp)).background(Color.White.copy(alpha = .22f)).pointerInput(duration) { detectTapGestures { offset -> if (duration > 0) seek((duration * (offset.x / size.width).coerceIn(0f, 1f)).toLong()) } }) { Box(Modifier.fillMaxHeight().fillMaxWidth(fraction.coerceIn(0f, 1f)).background(Color.White)) } }
@@ -310,3 +358,11 @@ private fun formatDate(value: String) = runCatching {
 }.getOrDefault(value)
 private fun parentPath(path: String): String { val cleaned = path.trimEnd('/', '\\'); val index = maxOf(cleaned.lastIndexOf('/'), cleaned.lastIndexOf('\\')); return if (index <= 0) cleaned else cleaned.substring(0, index + 1) }
 private suspend fun scanVideoFiles(api: LumoraApi, root: String): List<FsEntry> { if (root.isEmpty()) return emptyList(); val videos = mutableListOf<FsEntry>(); val queue = ArrayDeque<String>(); queue.add(root); while (queue.isNotEmpty()) { val listing = api.listFiles(queue.removeFirst(), "all"); listing.dirs.forEach { queue.add(it.path) }; videos += listing.files.filter { it.extension.lowercase() in setOf(".mp4", ".mkv", ".avi", ".mov", ".m4v", ".webm", ".wmv", ".flv") } }; return videos.sortedBy { it.name.lowercase() } }
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+class RemotePlayerView @JvmOverloads constructor(context: android.content.Context, attrs: android.util.AttributeSet? = null) : PlayerView(context, attrs) {
+    var onFullscreenKey: ((Int) -> Boolean)? = null
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_DOWN && !isControllerFullyVisible && onFullscreenKey?.invoke(event.keyCode) == true) return true
+        return super.dispatchKeyEvent(event)
+    }
+}
