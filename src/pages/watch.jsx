@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, Maximize2, Minimize2, MoveHorizontal, Pause, Play, Subtitles, Volume2, VolumeX } from "lucide-react";
+import Hls from "hls.js";
 import { cn } from "../lib/utils";
 import { apiFetch, apiUrl, assetUrl } from "../lib/api";
 import { useCatalog } from "../lib/catalog-context";
@@ -21,6 +22,7 @@ export function WatchPage() {
   const cueBaseRef = useRef(new Map());
   const lastTouchAtRef = useRef(0);
   const lastSideTapRef = useRef({ at: 0, zone: "" });
+  const hlsRef = useRef(null);
 
   const [playing, setPlaying] = useState(true);
   const [muted, setMuted] = useState(false);
@@ -36,6 +38,8 @@ export function WatchPage() {
   const [subtitleQuery, setSubtitleQuery] = useState("");
   const [seekPreview, setSeekPreview] = useState(null);
   const [resumeAt, setResumeAt] = useState(0);
+  const [playback, setPlayback] = useState({ state: "probing", method: "", percentage: null, error: "", url: "", audioTracks: [], selectedAudioStreamIndex: null });
+  const [requestedAudio, setRequestedAudio] = useState(undefined);
   const aspectModes = ["contain", "cover", "fill"];
 
   const savePlayback = async (useBeacon = false) => {
@@ -77,7 +81,7 @@ export function WatchPage() {
     for (let idx = 0; idx < video.textTracks.length; idx += 1) {
       const track = video.textTracks[idx];
       if (trackId === "off") track.mode = "disabled";
-      else if (trackId.startsWith("emb:")) track.mode = `emb:${idx}` === trackId ? "showing" : "disabled";
+      else if (trackId.startsWith("emb:")) track.mode = track.label === trackId ? "showing" : "disabled";
       else track.mode = selectedTrack && track.label === `ext:${selectedTrack.id}` ? "showing" : "disabled";
     }
   };
@@ -100,7 +104,7 @@ export function WatchPage() {
         try {
           cue.startTime = Math.max(0, base.start + subtitleDelay);
           cue.endTime = Math.max(cue.startTime + 0.05, base.end + subtitleDelay);
-        } catch {}
+        } catch { /* cue implementation does not allow timing updates */ }
       }
     }
   };
@@ -155,6 +159,50 @@ export function WatchPage() {
   useEffect(() => { resetHideTimer(); return () => hideTimerRef.current && clearTimeout(hideTimerRef.current); }, [playing, subtitlePanelOpen]);
   useEffect(() => { const v = videoRef.current; if (!v) return; if (playing) v.play().catch(() => setPlaying(false)); else v.pause(); }, [playing, item?.id]);
   useEffect(() => { const v = videoRef.current; if (v) v.muted = muted; }, [muted]);
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return undefined;
+    const syncVolume = () => setMuted(video.muted || video.volume === 0);
+    video.addEventListener("volumechange", syncVolume);
+    return () => video.removeEventListener("volumechange", syncVolume);
+  }, [item?.id]);
+  useEffect(() => {
+    if (!item) return undefined;
+    let cancelled = false; let timer;
+    const negotiate = async (audioStreamIndex) => {
+      setPlayback((value) => ({ ...value, state: "probing", error: "" }));
+      try {
+        const response = await apiFetch(`/api/media/${item.id}/playback`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(audioStreamIndex === undefined ? {} : { audioStreamIndex }) });
+        const data = await response.json();
+        if (!response.ok && response.status !== 202) throw new Error(data.failure?.message || data.error || "Playback preparation failed");
+        if (cancelled) return;
+        const update = { state: data.state, method: data.compatibility?.method || data.method, percentage: data.percentage, url: data.playbackUrl ? assetUrl(data.playbackUrl) : "", audioTracks: data.audioTracks || [], selectedAudioStreamIndex: data.selectedAudioStreamIndex, renditionId: data.renditionId };
+        setEmbeddedTrackOptions((data.subtitles || []).filter((track) => track.supported).map((track) => ({ id: `emb:${track.index}`, label: track.title || `${track.language} subtitles`, url: assetUrl(`/api/media/${item.id}/embedded-subtitles/${track.index}.vtt`), lang: track.language })));
+        setPlayback((value) => ({ ...value, ...update }));
+        if (!["playable", "complete"].includes(data.state) && data.pollingUrl) timer = setTimeout(() => poll(data.pollingUrl, update), 1000);
+      } catch (error) { if (!cancelled) setPlayback((value) => ({ ...value, state: "failed", error: error.message || "Playback failed" })); }
+    };
+    const poll = async (url, base) => {
+      try {
+        const response = await apiFetch(url); const data = await response.json(); if (!response.ok) throw new Error(data.error || "Preparation failed");
+        if (cancelled) return;
+        setPlayback((value) => ({ ...value, ...base, ...data, url: data.playbackUrl ? assetUrl(data.playbackUrl) : value.url, error: data.failure?.message || "" }));
+        if (!["playable", "complete", "failed"].includes(data.state)) timer = setTimeout(() => poll(url, base), 1000);
+      } catch (error) { if (!cancelled) setPlayback((value) => ({ ...value, state: "failed", error: error.message })); }
+    };
+    negotiate(requestedAudio);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [item?.id, requestedAudio]);
+
+  useEffect(() => {
+    const video = videoRef.current; if (!video || !playback.url) return undefined;
+    hlsRef.current?.destroy(); hlsRef.current = null;
+    if (/\.m3u8(?:$|\?)/.test(playback.url) && Hls.isSupported()) {
+      const hls = new Hls(); hlsRef.current = hls; hls.loadSource(playback.url); hls.attachMedia(video);
+      hls.on(Hls.Events.ERROR, (_event, data) => { if (data.fatal) setPlayback((value) => ({ ...value, state: "failed", error: `HLS playback failed: ${data.details}` })); });
+    } else video.src = playback.url;
+    return () => { hlsRef.current?.destroy(); hlsRef.current = null; video.removeAttribute("src"); video.load(); };
+  }, [playback.url]);
 
   useEffect(() => {
     saveTimerRef.current = setInterval(() => savePlayback(false), 5000);
@@ -216,7 +264,6 @@ export function WatchPage() {
       <div className="relative flex flex-1 items-center justify-center overflow-hidden">
         <video
           ref={videoRef}
-          src={item.streamUrl}
           className={cn("absolute inset-0 h-full w-full bg-black", fitMode === "cover" ? "object-cover" : fitMode === "fill" ? "object-fill" : "object-contain")}
           autoPlay
           onTimeUpdate={(e) => setCurrent(e.currentTarget.currentTime || 0)}
@@ -225,13 +272,6 @@ export function WatchPage() {
           onLoadedMetadata={(e) => {
             const video = e.currentTarget;
             setDuration(video.duration || 0);
-            const embedded = [];
-            for (let idx = 0; idx < video.textTracks.length; idx += 1) {
-              const track = video.textTracks[idx];
-              if (track.kind === "subtitles" || track.kind === "captions") embedded.push({ id: `emb:${idx}`, label: track.label || `Embedded ${idx + 1}` });
-            }
-            setEmbeddedTrackOptions(embedded);
-            if (!subtitleTracks.length && embedded.length) setSelectedSubtitleId(embedded[0].id);
             const startAt = resumeAt || Number(item.currentTime || 0);
             if (startAt > 0 && startAt < video.duration) { video.currentTime = startAt; setCurrent(startAt); }
             setTimeout(applySubtitleLayoutAndTiming, 120);
@@ -241,7 +281,19 @@ export function WatchPage() {
           {subtitleTracks.map((track) => (
             <track key={track.id} src={track.url} kind="subtitles" srcLang={track.lang || "und"} label={`ext:${track.id}`} default={`ext:${track.id}` === selectedSubtitleId} />
           ))}
+          {embeddedTrackOptions.map((track) => <track key={track.id} src={track.url} kind="subtitles" srcLang={track.lang || "und"} label={track.id} default={track.id === selectedSubtitleId} />)}
         </video>
+        {!playback.url && (
+          <div className="absolute inset-0 z-20 grid place-items-center bg-black/90 px-6 text-center">
+            <div className="max-w-md">
+              {playback.state !== "failed" && <div className="mx-auto mb-4 h-9 w-9 animate-spin rounded-full border-2 border-white/25 border-t-white" />}
+              <div className="text-lg font-semibold text-white">{playback.state === "failed" ? "Unable to play this media" : playback.state === "queued" ? "Queued for preparation" : "Preparing playback"}</div>
+              {!!playback.method && <div className="mt-2 text-sm text-white/65">{playback.method}{playback.percentage !== null ? ` · ${playback.percentage}%` : ""}</div>}
+              {!!playback.error && <div className="mt-3 text-sm text-rose-300">{playback.error}</div>}
+              {playback.state === "failed" && <div className="mt-5 flex justify-center gap-2"><button onClick={() => window.location.reload()} className="rounded-md bg-white px-4 py-2 text-sm text-black">Retry</button><Link to={item.seriesId ? `/series/${item.seriesId}` : "/"} className="rounded-md bg-white/10 px-4 py-2 text-sm text-white">Back</Link></div>}
+            </div>
+          </div>
+        )}
 
         {!playing && (
           <div className="pointer-events-none absolute inset-0 bg-linear-to-t from-black/95 via-black/70 to-black/80">
@@ -277,6 +329,10 @@ export function WatchPage() {
             <div className="mt-5 flex items-center gap-5 md:gap-7">
               <button onClick={() => setPlaying((v) => !v)} className="grid h-14 w-14 place-items-center rounded-full bg-white text-black">{playing ? <Pause className="h-6 w-6 fill-current" /> : <Play className="h-6 w-6 fill-current" />}</button>
               <div className="ml-auto flex items-center gap-3">
+                {playback.audioTracks.length > 1 && <select value={playback.selectedAudioStreamIndex ?? ""} onChange={(e) => {
+                  const retainedTime = videoRef.current?.currentTime || 0;
+                  setResumeAt(retainedTime); setRequestedAudio(Number(e.target.value));
+                }} className="h-12 max-w-40 rounded-md bg-white/10 px-2 text-sm text-white" title="Audio track">{playback.audioTracks.map((track) => <option key={track.index} value={track.index}>{track.title || track.language || `Audio ${track.index}`}</option>)}</select>}
                 <button onClick={() => setMuted((v) => !v)} className="grid h-12 w-12 place-items-center rounded-md bg-white/10 text-white hover:bg-white/20" title={muted ? "Unmute" : "Mute"}>{muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}</button>
                 <button onClick={() => { const next = !subtitlePanelOpen; setSubtitlePanelOpen(next); if (next) setControlsVisible(true); }} className={cn("grid h-12 w-12 place-items-center rounded-md", subtitlePanelOpen ? "bg-white text-black" : "bg-white/10 text-white hover:bg-white/20")} title="Subtitles"><Subtitles className="h-5 w-5" /></button>
                 <button onClick={toggleAspectMode} className="grid h-12 w-12 place-items-center rounded-md bg-white/10 text-white hover:bg-white/20" title={`Aspect: ${fitMode}`}><AspectIcon className="h-5 w-5" /></button>

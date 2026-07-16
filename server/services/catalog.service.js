@@ -2,6 +2,7 @@ const path = require('node:path');
 const fs = require('node:fs/promises');
 const dbModel = require('../models/db');
 const utilService = require('./util.service');
+const probeService = require('./media-probe.service');
 
 const catalogService = {
     cache: { generatedAt: null, sources: [], movies: [], series: [], map: new Map() },
@@ -44,7 +45,7 @@ const catalogService = {
                 const row = await catalogService.row(movie, data.playback[movie.id]);
                 movies.push(row);
                 map.set(row.id, { path: row.path, name: path.basename(row.path) });
-            } catch {}
+            } catch { /* unavailable catalog file */ }
         }
 
         for (const show of library.series) {
@@ -56,7 +57,7 @@ const catalogService = {
                         const row = await catalogService.row(episode, data.playback[episode.id]);
                         episodes.push(row);
                         map.set(row.id, { path: row.path, name: path.basename(row.path) });
-                    } catch {}
+                    } catch { /* unavailable catalog file */ }
                 }
                 episodes.sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
                 seasons.push({ number: season.number, episodes });
@@ -87,6 +88,8 @@ const catalogService = {
             series,
             map
         };
+
+        for (const media of map.values()) probeService.probe(media.path).catch(() => {});
 
         return catalogService.cache;
     },

@@ -22,7 +22,7 @@ const httpService = {
         if (!parts.length) throw new Error('No file payload found');
 
         const part = parts[0];
-        const fileNameMatch = /filename=\"([^\"]+)\"/.exec(part);
+        const fileNameMatch = /filename="([^"]+)"/.exec(part);
         if (!fileNameMatch) throw new Error('No filename found');
         const headerEnd = part.indexOf('\r\n\r\n');
         if (headerEnd === -1) throw new Error('Malformed multipart body');
@@ -40,18 +40,24 @@ const httpService = {
         const range = req.headers.range;
         const contentType = utilService.mime[path.extname(media.path).toLowerCase()] || 'application/octet-stream';
 
+        const send = (status, headers, options) => {
+            res.writeHead(status, headers);
+            if (req.method === 'HEAD') return res.end();
+            const stream = createReadStream(media.path, options);
+            const close = () => stream.destroy();
+            req.on('aborted', close); res.on('close', close);
+            stream.on('error', (error) => { if (!res.destroyed) res.destroy(error); });
+            stream.pipe(res);
+        };
+
         if (!range) {
-            res.writeHead(200, {
-                'Content-Type': contentType,
-                'Content-Length': total,
-                'Accept-Ranges': 'bytes',
+            return send(200, {
+                'Content-Type': contentType, 'Content-Length': total, 'Accept-Ranges': 'bytes',
                 'Content-Disposition': `inline; filename="${media.name}"`
             });
-            createReadStream(media.path).pipe(res);
-            return;
         }
 
-        const match = /bytes=(\d+)-(\d*)/.exec(range);
+        const match = /^bytes=(\d+)-(\d*)$/.exec(range);
         if (!match) {
             res.writeHead(416, { 'Content-Range': `bytes */${total}` });
             res.end();
@@ -59,21 +65,20 @@ const httpService = {
         }
 
         const start = Number(match[1]);
-        const end = match[2] ? Number(match[2]) : total - 1;
-        if (start >= total || end >= total) {
+        const end = Math.min(match[2] ? Number(match[2]) : total - 1, total - 1);
+        if (start >= total || end < start) {
             res.writeHead(416, { 'Content-Range': `bytes */${total}` });
             res.end();
             return;
         }
 
-        res.writeHead(206, {
+        return send(206, {
             'Content-Type': contentType,
             'Content-Length': end - start + 1,
             'Accept-Ranges': 'bytes',
             'Content-Range': `bytes ${start}-${end}/${total}`,
             'Content-Disposition': `inline; filename="${media.name}"`
-        });
-        createReadStream(media.path, { start, end }).pipe(res);
+        }, { start, end });
     }
 };
 

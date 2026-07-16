@@ -2,7 +2,7 @@ const path = require('node:path');
 const fs = require('node:fs/promises');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
-const ffmpeg = require('@ffmpeg-installer/ffmpeg');
+const ffmpegStatic = require('ffmpeg-static');
 const dbModel = require('../models/db');
 const catalogService = require('./catalog.service');
 
@@ -17,7 +17,7 @@ const thumbnailService = {
         if (match) return path.join(dir, match);
         for (const name of ['poster.jpg', 'poster.jpeg', 'poster.png', 'cover.jpg', 'cover.jpeg', 'cover.png', 'folder.jpg', 'thumb.jpg', 'thumbnail.jpg']) {
             const full = path.join(dir, name);
-            try { await fs.access(full); return full; } catch {}
+            try { await fs.access(full); return full; } catch { /* try next extension */ }
         }
         return null;
     },
@@ -41,7 +41,7 @@ const thumbnailService = {
             const outDir = path.resolve('data/thumbnails/auto');
             await fs.mkdir(outDir, { recursive: true });
             const outPath = path.join(outDir, `${id}.jpg`);
-            const ffmpegPath = ffmpeg?.path || 'ffmpeg';
+            const ffmpegPath = process.env.FFMPEG_PATH || ffmpegStatic;
             await exec(ffmpegPath, ['-y', '-ss', '00:00:03', '-i', mediaPath, '-frames:v', '1', '-vf', 'scale=640:-1', outPath], { windowsHide: true });
             await fs.access(outPath);
             await dbModel.setThumbnail(id, outPath);
@@ -55,7 +55,7 @@ const thumbnailService = {
         const library = await dbModel.getLibrary();
         const custom = await dbModel.getThumbnail(id);
         if (custom) {
-            try { await fs.access(custom); return custom; } catch {}
+            try { await fs.access(custom); return custom; } catch { /* generate a thumbnail */ }
         }
 
         let mediaEntry = null;
@@ -81,7 +81,7 @@ const thumbnailService = {
                 await fs.access(thumb);
                 await dbModel.setThumbnail(id, thumb);
                 return thumb;
-            } catch {}
+            } catch { /* try the next seek position */ }
         }
 
         if (kind === 'series') {

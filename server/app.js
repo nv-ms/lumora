@@ -6,6 +6,8 @@ const healthRoutes = require('./routes/health.routes');
 const mediaRoutes = require('./routes/media.routes');
 const libraryRoutes = require('./routes/library.routes');
 const assetRoutes = require('./routes/asset.routes');
+const transcoderHealth = require('./services/transcoder-health.service');
+const renditionService = require('./services/rendition.service');
 
 const app = express();
 const port = Number(process.env.PORT || 8787);
@@ -15,7 +17,8 @@ const hasDist = fs.existsSync(path.join(distDir, 'index.html'));
 app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range');
+    res.setHeader('Access-Control-Expose-Headers', 'Accept-Ranges, Content-Length, Content-Range');
     if (req.method === 'OPTIONS') return res.status(204).end();
     return next();
 });
@@ -54,3 +57,9 @@ app.use((error, req, res, next) => {
 app.listen(port, () => {
     console.log(`Media server listening on http://localhost:${port}`);
 });
+
+transcoderHealth.check().then((health) => {
+    if (!health.ok) console.error('Playback capabilities unavailable', health);
+});
+process.once('SIGINT', () => { renditionService.shutdown(); process.exit(0); });
+process.once('SIGTERM', () => { renditionService.shutdown(); process.exit(0); });
