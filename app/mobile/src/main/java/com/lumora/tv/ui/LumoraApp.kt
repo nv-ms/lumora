@@ -113,12 +113,14 @@ fun LumoraApp() {
 @Composable
 private fun AppShell(screen: Screen, catalog: Catalog?, api: LumoraApi, loading: Boolean, error: String, navigate: (Screen) -> Unit, refresh: () -> Unit) {
     var query by remember { mutableStateOf("") }
+    val connectionLabel = when { loading -> "●  CONNECTING"; error.isEmpty() && catalog != null -> "●  CONNECTED"; else -> "●  DISCONNECTED" }
+    val connectionColor = when { loading -> Muted; error.isEmpty() && catalog != null -> Success; else -> Danger }
     Row(Modifier.fillMaxSize()) {
         Sidebar(screen, navigate)
         Column(Modifier.weight(1f).fillMaxHeight()) {
             Row(Modifier.fillMaxWidth().height(58.dp).background(Bg).padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
                 VectorIcon(Icons.Default.Search, Muted, Modifier.size(18.dp)); Spacer(Modifier.width(10.dp)); Input(query, { query = it }, "Search library", Modifier.width(300.dp), onSubmit = { if (query.isNotBlank()) navigate(Screen.Search(query.trim())) })
-                Spacer(Modifier.weight(1f)); Text(if (error.isEmpty() && catalog != null) "●  CONNECTED" else "●  DISCONNECTED", color = if (error.isEmpty() && catalog != null) Success else Danger, fontSize = 11.sp)
+                Spacer(Modifier.weight(1f)); Text(connectionLabel, color = connectionColor, fontSize = 11.sp)
             }
             Box(Modifier.fillMaxSize()) {
                 when {
@@ -255,7 +257,7 @@ private fun SettingsPage(api: LumoraApi, refreshCatalog: () -> Unit) {
     LaunchedEffect(Unit) { refresh() }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(34.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
         item { PageTitle("Settings", "Server connection") }
-        item { PanelBox { Text("Server URL", color = Foreground); Spacer(Modifier.height(10.dp)); Input(value, { value = it }, "http://localhost:8787", Modifier.fillMaxWidth()); Spacer(Modifier.height(12.dp)); Row { ActionButton("Test") { scope.launch { api.serverUrl = value; status = if (api.healthReady()) "Connected." else "Connection failed."; refresh() } }; Spacer(Modifier.width(8.dp)); ActionButton("Save") { api.serverUrl = value; status = "Saved."; refreshCatalog() } }; Text(status, color = if (status.contains("Connected") || status.contains("Saved")) Success else Danger, fontSize = 11.sp) } }
+        item { PanelBox { Text("Server URL", color = Foreground); Spacer(Modifier.height(10.dp)); Input(value, { value = it }, LumoraApi.DEFAULT_SERVER_URL, Modifier.fillMaxWidth()); Spacer(Modifier.height(12.dp)); Row { ActionButton("Test") { scope.launch { value = value.ifBlank { LumoraApi.DEFAULT_SERVER_URL }; api.serverUrl = value; status = if (api.healthReady()) "Connected." else "Connection failed."; refresh() } }; Spacer(Modifier.width(8.dp)); ActionButton("Reconnect") { scope.launch { value = value.ifBlank { LumoraApi.DEFAULT_SERVER_URL }; api.serverUrl = value; status = if (api.healthReady()) "Reconnected." else "Connection failed."; refresh(); refreshCatalog() } }; Spacer(Modifier.width(8.dp)); ActionButton("Save") { value = value.ifBlank { LumoraApi.DEFAULT_SERVER_URL }; api.serverUrl = value; status = "Saved."; refreshCatalog() } }; Text(status, color = if (status.contains("Connected") || status.contains("Reconnected") || status.contains("Saved")) Success else Danger, fontSize = 11.sp) } }
         item { PanelBox { Text("Playback engine", color = Foreground); Spacer(Modifier.height(10.dp)); Text("FFmpeg: ${if (health?.ready == true) "Ready" else if (health?.checked == true) "Missing required capabilities" else "Checking…"}", color = Muted, fontSize = 12.sp); Text(health?.capabilities?.entries?.joinToString(" · ") { "${it.key}: ${if (it.value) "yes" else "no"}" }.orEmpty(), color = Muted, fontSize = 11.sp); Spacer(Modifier.height(16.dp)); Text("Generated cache: ${cache?.sizeBytes?.let { "%.2f GiB".format(it / 1024.0 / 1024 / 1024) } ?: "Loading…"} · ${cache?.renditions ?: 0} renditions", color = Muted, fontSize = 12.sp); Spacer(Modifier.height(12.dp)); Row { Input(limit, { limit = it }, "GiB", Modifier.width(120.dp)); Spacer(Modifier.width(8.dp)); ActionButton("Apply") { scope.launch { api.setCacheLimit((limit.toDoubleOrNull() ?: 50.0).times(1024.0 * 1024 * 1024).roundToLong()); refresh() } }; Spacer(Modifier.width(8.dp)); ActionButton("Clear inactive", danger = true) { scope.launch { api.clearCache(); refresh() } } } } }
     }
 }
