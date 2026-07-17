@@ -2,6 +2,7 @@ package com.lumora.tv.ui
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.app.Activity
 import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.ViewGroup
@@ -29,7 +30,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.asImageBitmap
@@ -56,6 +59,7 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.DefaultTimeBar
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.session.MediaSession
 import androidx.tv.material3.MaterialTheme
@@ -69,17 +73,18 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import org.json.JSONArray
 import java.net.URL
+import java.net.HttpURLConnection
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 import kotlin.math.roundToLong
 
-private val Bg = Color(0xFF121212)
-private val Panel = Color(0xFF1B1B1B)
-private val Panel2 = Color(0xFF242424)
-private val Hairline = Color(0xFF303030)
-private val Foreground = Color(0xFFF2F2F2)
-private val Muted = Color(0xFF929292)
+private val Bg = Color.Black
+private val Panel = Color.White.copy(alpha = .03f)
+private val Panel2 = Color.White.copy(alpha = .08f)
+private val Hairline = Color.White.copy(alpha = .10f)
+private val Foreground = Color.White
+private val Muted = Color.White.copy(alpha = .58f)
 private val Danger = Color(0xFFFF7580)
 private val Success = Color(0xFF55D58A)
 
@@ -110,7 +115,7 @@ fun LumoraApp() {
     MaterialTheme {
         Box(Modifier.fillMaxSize().background(Bg)) {
             when (val current = screen) {
-                is Screen.Player -> PlayerScreen(api, current.media) { screen = if (current.media.seriesId.isNotEmpty()) Screen.SeriesDetail(current.media.seriesId) else Screen.Home }
+                is Screen.Player -> PlayerScreen(api, current.media, back = { screen = if (current.media.seriesId.isNotEmpty()) Screen.SeriesDetail(current.media.seriesId) else Screen.Home }, settings = { screen = Screen.Settings })
                 else -> AppShell(current, catalog, api, loading, error, navigate = { screen = it }, refresh = { refreshKey++ })
             }
         }
@@ -132,7 +137,7 @@ private fun AppShell(screen: Screen, catalog: Catalog?, api: LumoraApi, loading:
             Box(Modifier.fillMaxSize()) {
                 when {
                     loading -> LoadingState("Loading library…")
-                    error.isNotEmpty() && screen !is Screen.Settings -> ErrorState(error) { navigate(Screen.Settings) }
+                    error.isNotEmpty() && screen !is Screen.Settings -> ErrorState(error, retry = refresh, settings = { navigate(Screen.Settings) })
                     else -> when (screen) {
                         Screen.Home -> HomePage(catalog ?: emptyCatalog(), navigate)
                         Screen.Movies -> GridPage("Movies", "${catalog?.movies?.size ?: 0} titles in library", catalog?.movies.orEmpty()) { navigate(Screen.Player(it)) }
@@ -163,26 +168,45 @@ private fun Sidebar(screen: Screen, navigate: (Screen) -> Unit) {
 }
 private fun activeFor(current: Screen, target: Screen) = current::class == target::class || (target is Screen.Series && current is Screen.SeriesDetail) || (target is Screen.Catalog && current is Screen.CatalogDetail)
 
-@Composable private fun NavItem(icon: ImageVector, label: String, active: Boolean, click: () -> Unit) { FocusBox(onClick = click, active = active, modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) { Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) { VectorIcon(icon, if (active) Foreground else Muted, Modifier.size(18.dp)); Spacer(Modifier.width(12.dp)); Text(label, color = if (active) Foreground else Muted, fontSize = 14.sp) } } }
+private data class HomeHighlight(val id: String, val kind: String, val title: String, val thumbnail: String, val meta: String, val progress: Float? = null)
+private fun MediaEntry.displayTitle(): String {
+    if (kind != "episode") return title
+    val match = Regex("(?i)S(\\d{1,2})E(\\d{1,3})").find(title)
+    val displaySeason = match?.groupValues?.get(1)?.toIntOrNull() ?: season
+    val displayEpisode = match?.groupValues?.get(2)?.toIntOrNull() ?: number
+    return "${seriesTitle.ifEmpty { title.substringBefore(" S", title) }} S$displaySeason Episode $displayEpisode"
+}
+
+@Composable private fun NavItem(icon: ImageVector, label: String, active: Boolean, click: () -> Unit) { FocusBox(onClick = click, active = active, modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) { Row(Modifier.padding(horizontal = 8.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) { Box(Modifier.width(2.dp).height(18.dp).background(if (active) Color.White.copy(alpha = .78f) else Color.Transparent, RoundedCornerShape(2.dp))); Spacer(Modifier.width(10.dp)); VectorIcon(icon, if (active) Foreground else Muted, Modifier.size(18.dp)); Spacer(Modifier.width(12.dp)); Text(label, color = if (active) Foreground else Muted, fontSize = 14.sp, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal) } } }
 
 @Composable
 private fun HomePage(catalog: Catalog, navigate: (Screen) -> Unit) {
-    val hero = catalog.continueWatching.firstOrNull()
+    val initial = catalog.continueWatching.firstOrNull() ?: catalog.recentlyAdded.firstOrNull()
+    var highlight by remember(catalog.generatedAt) { mutableStateOf(initial?.let { HomeHighlight(it.id, "media", it.displayTitle(), it.thumbnailUrl, "", it.progress) } ?: catalog.series.firstOrNull()?.let { HomeHighlight(it.id, "series", it.title, it.thumbnailUrl, "${it.seasons.size} season(s)") }) }
+    val openHighlight: (HomeHighlight) -> Unit = { item -> if (item.kind == "series") navigate(Screen.SeriesDetail(item.id)) else catalog.allMedia.find { it.id == item.id }?.let { navigate(Screen.Player(it)) }; Unit }
+    val recentlyAddedMovies = catalog.recentlyAdded.filter { it.kind != "episode" }.take(12)
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 64.dp)) {
-        if (hero != null) item {
-            Row(Modifier.padding(start = 34.dp, end = 34.dp, top = 36.dp), verticalAlignment = Alignment.Bottom) {
-                Poster(hero.title, hero.thumbnailUrl, Modifier.width(190.dp), 2f / 3f)
-                Spacer(Modifier.width(32.dp)); Column(Modifier.padding(bottom = 8.dp)) { Text("RESUME ${if (hero.kind == "episode") "- S${hero.season}-E${hero.number}" else "- MOVIE"}", color = Muted, fontSize = 10.sp); Text(hero.title, color = Foreground, fontSize = 32.sp, lineHeight = 38.sp, fontWeight = FontWeight.SemiBold, maxLines = 3, overflow = TextOverflow.Ellipsis); Spacer(Modifier.height(22.dp)); Row(verticalAlignment = Alignment.CenterVertically) { ActionButton("Continue", icon = Icons.Default.PlayArrow) { navigate(Screen.Player(hero)) }; Spacer(Modifier.width(16.dp)); Progress(hero.progress ?: 0f, Modifier.width(260.dp)) } }
+        highlight?.let { featured -> item(key = "featured") {
+            Box(Modifier.fillMaxWidth().height(330.dp)) {
+                HeroArtwork(featured.title, featured.thumbnail, Modifier.fillMaxSize())
+                Column(Modifier.align(Alignment.BottomStart).width(520.dp).padding(start = 34.dp, bottom = 36.dp)) {
+                    Text(if (featured.progress != null) "CONTINUE WATCHING" else if (featured.kind == "series") "SERIES" else "FEATURED", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(8.dp)); Text(featured.title, color = Foreground, fontSize = 36.sp, lineHeight = 40.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    if (featured.meta.isNotEmpty()) { Spacer(Modifier.height(8.dp)); Text(featured.meta, color = Muted, fontSize = 12.sp) }
+                    if (featured.progress != null) { Spacer(Modifier.height(14.dp)); Progress(featured.progress, Modifier.width(300.dp)) }
+                    Spacer(Modifier.height(18.dp)); ActionButton(if (featured.progress != null) "Resume" else if (featured.kind == "series") "View series" else "Play", Modifier.focusProperties { up = FocusRequester.Cancel }, icon = if (featured.kind == "series") Icons.Default.ArrowForward else Icons.Default.PlayArrow) { openHighlight(featured) }
+                }
             }
-        }
-        item { Shelf("Continue watching", catalog.continueWatching, navigate) }
-        item { Shelf("Recently added", catalog.recentlyAdded.take(6), navigate) }
-        item { SeriesShelf("Your shows", catalog.series.take(6), navigate) }
+        } }
+        if (highlight == null) item { Column(Modifier.fillParentMaxSize().padding(34.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) { Text("Your library is empty", color = Foreground, fontSize = 24.sp); Spacer(Modifier.height(8.dp)); Text("Add movies or series from Catalog to start watching.", color = Muted, fontSize = 13.sp) } }
+        item { Shelf("Continue watching", catalog.continueWatching, navigate) { highlight = HomeHighlight(it.id, "media", it.displayTitle(), it.thumbnailUrl, "", it.progress) } }
+        item { Shelf("Recently added", recentlyAddedMovies, navigate) { highlight = HomeHighlight(it.id, "media", it.displayTitle(), it.thumbnailUrl, "", it.progress) } }
+        item { SeriesShelf("Your shows", catalog.series.take(12), navigate) { highlight = HomeHighlight(it.id, "series", it.title, it.thumbnailUrl, "${it.seasons.size} season(s)") } }
     }
 }
 
-@Composable private fun Shelf(title: String, media: List<MediaEntry>, navigate: (Screen) -> Unit) { if (media.isEmpty()) return; Column(Modifier.padding(start = 34.dp, top = 48.dp)) { SectionHeader(title, media.size); LazyRow(horizontalArrangement = Arrangement.spacedBy(20.dp), contentPadding = PaddingValues(end = 34.dp)) { items(media, key = { it.id }) { PosterCard(it.title, it.thumbnailUrl, it.extension) { navigate(Screen.Player(it)) } } } } }
-@Composable private fun SeriesShelf(title: String, shows: List<SeriesEntry>, navigate: (Screen) -> Unit) { if (shows.isEmpty()) return; Column(Modifier.padding(start = 34.dp, top = 48.dp)) { SectionHeader(title, shows.size); LazyRow(horizontalArrangement = Arrangement.spacedBy(20.dp), contentPadding = PaddingValues(end = 34.dp)) { items(shows, key = { it.id }) { PosterCard(it.title, it.thumbnailUrl, "${it.seasons.size} season(s)") { navigate(Screen.SeriesDetail(it.id)) } } } } }
+@Composable private fun Shelf(title: String, media: List<MediaEntry>, navigate: (Screen) -> Unit, focused: (MediaEntry) -> Unit = {}) { if (media.isEmpty()) return; Column(Modifier.padding(start = 34.dp, top = 38.dp)) { SectionHeader(title, media.size); LazyRow(horizontalArrangement = Arrangement.spacedBy(20.dp), contentPadding = PaddingValues(end = 34.dp, bottom = 8.dp)) { items(media, key = { it.id }) { PosterCard(it.displayTitle(), it.thumbnailUrl, "", { focused(it) }) { navigate(Screen.Player(it)) } } } } }
+@Composable private fun SeriesShelf(title: String, shows: List<SeriesEntry>, navigate: (Screen) -> Unit, focused: (SeriesEntry) -> Unit = {}) { if (shows.isEmpty()) return; Column(Modifier.padding(start = 34.dp, top = 38.dp)) { SectionHeader(title, shows.size); LazyRow(horizontalArrangement = Arrangement.spacedBy(20.dp), contentPadding = PaddingValues(end = 34.dp, bottom = 8.dp)) { items(shows, key = { it.id }) { PosterCard(it.title, it.thumbnailUrl, "${it.seasons.size} season(s)", { focused(it) }, blockDown = true) { navigate(Screen.SeriesDetail(it.id)) } } } } }
 @Composable private fun SectionHeader(title: String, count: Int) { Row(Modifier.fillMaxWidth().padding(end = 34.dp, bottom = 18.dp)) { Text(title, color = Foreground, fontSize = 18.sp); Spacer(Modifier.weight(1f)); Text("$count ITEMS", color = Muted, fontSize = 10.sp) } }
 
 @Composable
@@ -193,7 +217,7 @@ private fun SeriesPage(series: List<SeriesEntry>, navigate: (Screen) -> Unit) { 
 
 @Composable
 private fun SeriesDetailPage(id: String, catalog: Catalog, navigate: (Screen) -> Unit) {
-    val show = catalog.series.find { it.id == id } ?: return ErrorState("Series not found") { navigate(Screen.Series) }
+    val show = catalog.series.find { it.id == id } ?: return ErrorState("Series not found", retry = { navigate(Screen.Series) }, settings = { navigate(Screen.Settings) })
     var season by remember(show.id) { mutableIntStateOf(show.seasons.firstOrNull()?.number ?: 1) }
     val selected = show.seasons.find { it.number == season }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(34.dp)) {
@@ -271,14 +295,15 @@ private fun SettingsPage(api: LumoraApi, refreshCatalog: () -> Unit) {
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
-private fun PlayerScreen(api: LumoraApi, media: MediaEntry, back: () -> Unit) {
+private fun PlayerScreen(api: LumoraApi, media: MediaEntry, back: () -> Unit, settings: () -> Unit) {
     val context = LocalContext.current; val scope = rememberCoroutineScope(); val player = remember { ExoPlayer.Builder(context).setSeekBackIncrementMs(10_000).setSeekForwardIncrementMs(10_000).build() }; val mediaSession = remember(player) { MediaSession.Builder(context, player).build() }
     var info by remember { mutableStateOf<PlaybackInfo?>(null) }; var external by remember { mutableStateOf(emptyList<SubtitleTrack>()) }; var selectedSubtitle by remember { mutableStateOf<SubtitleTrack?>(null) }; var tracksPanel by remember { mutableStateOf(false) }; var speedPanel by remember { mutableStateOf(false) }; var error by remember { mutableStateOf("") }; var playbackState by remember { mutableIntStateOf(Player.STATE_IDLE) }; var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }; var resume by remember { mutableLongStateOf(0L) }; var playerView by remember { mutableStateOf<RemotePlayerView?>(null) }
+    fun sourceDuration() = info?.duration?.times(1000)?.toLong()?.takeIf { it > 0 } ?: player.duration
     fun load(audioIndex: Int? = null, keepPosition: Long = resume) { scope.launch { runCatching { info = api.prepare(media.id, audioIndex); external = api.subtitleTracks(media.id); val prepared = info ?: return@runCatching; if (prepared.error.isNotEmpty()) error = prepared.error else { val subtitles = selectedSubtitle?.let { listOf(MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(it.url)).setMimeType(MimeTypes.TEXT_VTT).setLanguage(it.language).setSelectionFlags(C.SELECTION_FLAG_DEFAULT).build()) }.orEmpty(); player.setMediaItem(MediaItem.Builder().setMediaId(media.id).setUri(prepared.url).setMediaMetadata(MediaMetadata.Builder().setTitle(media.title).setArtist(media.seriesTitle.ifEmpty { "Lumora" }).build()).setSubtitleConfigurations(subtitles).build()); player.prepare(); if (keepPosition > 0) player.seekTo(keepPosition); player.playWhenReady = true } }.onFailure { error = it.message.orEmpty() } } }
     LaunchedEffect(media.id) { resume = api.resumeTime(media.id); load() }
     LaunchedEffect(selectedSubtitle?.id) { if (info?.url?.isNotEmpty() == true) load(info?.selectedAudio, player.currentPosition) }
-    LaunchedEffect(player) { while (true) { delay(5000); runCatching { api.saveProgress(media.id, player.currentPosition, player.duration) } } }
-    DisposableEffect(player, mediaSession) { val listener = object : Player.Listener { override fun onPlaybackStateChanged(state: Int) { playbackState = state }; override fun onPlayerError(e: androidx.media3.common.PlaybackException) { error = e.message ?: "Playback failed" } }; player.addListener(listener); onDispose { player.removeListener(listener); mediaSession.release(); player.release() } }
+    LaunchedEffect(player) { while (true) { delay(5000); runCatching { api.saveProgress(media.id, player.currentPosition, sourceDuration()) } } }
+    DisposableEffect(player, mediaSession) { val listener = object : Player.Listener { override fun onPlaybackStateChanged(state: Int) { playbackState = state }; override fun onPlayerError(e: androidx.media3.common.PlaybackException) { error = e.message ?: "Playback failed" } }; player.addListener(listener); onDispose { val position = player.currentPosition; val duration = sourceDuration(); if (duration > 0) scope.launch { runCatching { api.saveProgress(media.id, position, duration) } }; player.removeListener(listener); mediaSession.release(); player.release() } }
     SideEffect { RemoteKeys.handler = { keyCode ->
         if (tracksPanel || speedPanel || playerView?.isControllerFullyVisible != false) false else when (keyCode) {
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> { if (player.isPlaying) player.pause() else player.play(); true }
@@ -300,7 +325,7 @@ private fun PlayerScreen(api: LumoraApi, media: MediaEntry, back: () -> Unit) {
         AndroidView(factory = { context -> (LayoutInflater.from(context).inflate(R.layout.lumora_player_view, null, false) as RemotePlayerView).apply {
             this.player = player; playerView = this; controllerShowTimeoutMs = 4000
             findViewById<android.widget.TextView>(R.id.lumora_player_title)?.text = media.seriesTitle.ifEmpty { media.title }
-            findViewById<android.widget.TextView>(R.id.lumora_player_subtitle)?.text = if (media.seriesId.isNotEmpty()) "S%02d E%02d · %s".format(media.season, media.number, media.title) else ""
+            findViewById<android.widget.TextView>(R.id.lumora_player_subtitle)?.text = if (media.seriesId.isNotEmpty()) "Season ${media.season}  •  Episode ${media.number}" else ""
             findViewById<android.view.View>(R.id.lumora_back)?.setOnClickListener { back() }
             findViewById<android.view.View>(R.id.lumora_tracks)?.setOnClickListener { hideController(); tracksPanel = true }
             findViewById<android.view.View>(R.id.lumora_speed)?.setOnClickListener { hideController(); speedPanel = true }
@@ -309,9 +334,9 @@ private fun PlayerScreen(api: LumoraApi, media: MediaEntry, back: () -> Unit) {
             findViewById<android.view.View>(androidx.media3.ui.R.id.exo_play_pause)?.setBackgroundResource(R.drawable.player_center_background)
             findViewById<android.widget.Button>(androidx.media3.ui.R.id.exo_ffwd_with_amount)?.apply { backgroundTintList = null; setBackgroundResource(R.drawable.player_center_background) }
             layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT); requestFocus()
-        } }, update = { it.resizeMode = resizeMode }, modifier = Modifier.fillMaxSize().focusable())
+        } }, update = { view -> val duration = info?.duration?.times(1000)?.toLong() ?: 0L; view.resizeMode = resizeMode; view.findViewById<SourceDurationTimeBar>(androidx.media3.ui.R.id.exo_progress)?.sourceDurationMs = duration; view.findViewById<android.widget.TextView>(R.id.lumora_duration)?.text = if (duration > 0) formatPlaybackTime(duration) else "--:--" }, modifier = Modifier.fillMaxSize().focusable())
         if (info?.url.isNullOrEmpty() && error.isEmpty()) LoadingState(preparationLabel(info))
-        if (error.isNotEmpty()) ErrorState(error) { error = ""; load(info?.selectedAudio, player.currentPosition) }
+        if (error.isNotEmpty()) ErrorState(error, retry = { error = ""; load(info?.selectedAudio, player.currentPosition) }, settings = settings)
         if (tracksPanel) PlayerTracksPanel(info, external, selectedSubtitle, close = { tracksPanel = false; playerView?.showController() }, selectSubtitle = { selectedSubtitle = it; tracksPanel = false }, selectAudio = { val time = player.currentPosition; info = info?.copy(url = "", selectedAudio = it.index); tracksPanel = false; load(it.index, time) }, Modifier.align(Alignment.CenterEnd))
         if (speedPanel) TrackPanel("Playback speed", listOf(.5f, .75f, 1f, 1.25f, 1.5f), player.playbackParameters.speed, label = { "${it}x" }, select = { player.setPlaybackSpeed(it); playerView?.findViewById<android.view.View>(R.id.lumora_speed)?.isSelected = it != 1f; speedPanel = false; playerView?.showController() }, Modifier.align(Alignment.CenterEnd))
     }
@@ -336,11 +361,12 @@ private fun PlayerTracksPanel(info: PlaybackInfo?, external: List<SubtitleTrack>
 
 @Composable private fun <T> TrackPanel(title: String, tracks: List<T>, selected: T?, label: (T) -> String, select: (T) -> Unit, modifier: Modifier = Modifier) { val initialFocus = remember { FocusRequester() }; LaunchedEffect(Unit) { initialFocus.requestFocus() }; Column(modifier.width(370.dp).fillMaxHeight().background(Bg).padding(20.dp)) { Text(title, color = Foreground, fontSize = 18.sp); Spacer(Modifier.height(18.dp)); LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { itemsIndexed(tracks) { index, track -> ActionButton(label(track), Modifier.fillMaxWidth().then(if (index == 0) Modifier.focusRequester(initialFocus) else Modifier), selected = track == selected) { select(track) } } } } }
 
-@Composable private fun PosterCard(title: String, thumbnail: String, meta: String, click: () -> Unit) { FocusBox(click, Modifier.width(175.dp)) { Column { Poster(title, thumbnail, Modifier.fillMaxWidth(), 2f / 3f); Spacer(Modifier.height(8.dp)); Text(title, color = Foreground, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis); Text(meta, color = Muted, fontSize = 10.sp) } } }
-@Composable private fun Poster(title: String, url: String, modifier: Modifier, aspect: Float) { val bitmap by rememberBitmap(url); Box(modifier.aspectRatio(aspect).clip(RoundedCornerShape(6.dp)).background(Color(0xFF292929)), contentAlignment = Alignment.BottomStart) { if (bitmap != null) Image(bitmap!!.asImageBitmap(), title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop); Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = if (bitmap != null) .27f else 0f))); Text(title, color = Color(0xFFD6D6D6), fontWeight = FontWeight.SemiBold, fontSize = 13.sp, modifier = Modifier.padding(12.dp), maxLines = 2) } }
-@Composable private fun rememberBitmap(url: String): State<Bitmap?> = produceState(null, url) { if (url.isNotEmpty()) value = withContext(Dispatchers.IO) { runCatching { URL(url).openStream().use(BitmapFactory::decodeStream) }.getOrNull() } }
-@Composable private fun FocusBox(onClick: () -> Unit, modifier: Modifier = Modifier, active: Boolean = false, content: @Composable () -> Unit) { var focused by remember { mutableStateOf(false) }; Box(modifier.onFocusChanged { focused = it.isFocused }.border(if (focused) 2.dp else 0.dp, if (focused) Color.White else Color.Transparent, RoundedCornerShape(7.dp)).padding(if (focused) 3.dp else 0.dp).clip(RoundedCornerShape(7.dp)).background(if (focused || active) Panel2 else Color.Transparent).clickable(onClick = onClick).focusable()) { content() } }
-@Composable private fun ActionButton(label: String, modifier: Modifier = Modifier, selected: Boolean = false, danger: Boolean = false, icon: ImageVector? = null, onClick: () -> Unit) { var focused by remember { mutableStateOf(false) }; val shape = RoundedCornerShape(6.dp); Box(modifier.onFocusChanged { focused = it.isFocused }.border(if (focused) 2.dp else 0.dp, if (focused) Color.White else Color.Transparent, shape).padding(if (focused) 3.dp else 0.dp).border(if (focused && selected) 2.dp else 0.dp, if (focused && selected) Color.Black else Color.Transparent, shape).clip(shape).background(if (selected) Foreground else Panel2).clickable(onClick = onClick).focusable().padding(horizontal = 16.dp, vertical = 11.dp), contentAlignment = Alignment.Center) { Row(verticalAlignment = Alignment.CenterVertically) { if (icon != null) { VectorIcon(icon, if (selected) Color.Black else if (danger) Danger else Foreground, Modifier.size(16.dp)); Spacer(Modifier.width(7.dp)) }; Text(label, color = if (selected) Color.Black else if (danger) Danger else Foreground, fontSize = 12.sp, maxLines = 1) } } }
+@Composable private fun PosterCard(title: String, thumbnail: String, meta: String, focused: () -> Unit = {}, blockDown: Boolean = false, click: () -> Unit) { FocusBox(click, Modifier.width(175.dp).then(if (blockDown) Modifier.focusProperties { down = FocusRequester.Cancel } else Modifier), onFocused = focused) { Column { Poster(title, thumbnail, Modifier.fillMaxWidth(), 2f / 3f); Spacer(Modifier.height(8.dp)); Text(title, color = Foreground, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis); if (meta.isNotEmpty()) Text(meta, color = Muted, fontSize = 10.sp) } } }
+@Composable private fun Poster(title: String, url: String, modifier: Modifier, aspect: Float) { val bitmap by rememberBitmap(url); Box(modifier.aspectRatio(aspect).clip(RoundedCornerShape(6.dp)).background(Panel), contentAlignment = Alignment.BottomStart) { if (bitmap != null) Image(bitmap!!.asImageBitmap(), title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop); Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = if (bitmap != null) .27f else 0f))); Text(title, color = Color.White.copy(alpha = .84f), fontWeight = FontWeight.SemiBold, fontSize = 13.sp, modifier = Modifier.padding(12.dp), maxLines = 2) } }
+@Composable private fun HeroArtwork(title: String, url: String, modifier: Modifier = Modifier) { val bitmap by rememberBitmap(url); Box(modifier.background(Bg)) { if (bitmap != null) Image(bitmap!!.asImageBitmap(), title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop); Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color.Black, Color.Black.copy(alpha = .78f), Color.Transparent)))); Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .12f), Color.Black)))) } }
+@Composable private fun rememberBitmap(url: String): State<Bitmap?> = produceState(null, url) { if (url.isNotEmpty()) value = withContext(Dispatchers.IO) { runCatching { val connection = URL(url).openConnection() as HttpURLConnection; try { connection.connectTimeout = 8000; connection.readTimeout = 15000; connection.setRequestProperty("Accept", "image/*"); if (connection.responseCode !in 200..299) error("Image request failed"); connection.inputStream.use(BitmapFactory::decodeStream) } finally { connection.disconnect() } }.getOrNull() } }
+@Composable private fun FocusBox(onClick: () -> Unit, modifier: Modifier = Modifier, active: Boolean = false, onFocused: () -> Unit = {}, content: @Composable () -> Unit) { var focused by remember { mutableStateOf(false) }; Box(modifier.onFocusChanged { state -> focused = state.isFocused; if (state.isFocused) onFocused() }.border(if (focused) 2.dp else 0.dp, if (focused) Color.White else Color.Transparent, RoundedCornerShape(7.dp)).padding(if (focused) 3.dp else 0.dp).clip(RoundedCornerShape(7.dp)).background(if (focused) Panel2 else if (active) Panel else Color.Transparent).clickable(onClick = onClick).focusable()) { content() } }
+@Composable private fun ActionButton(label: String, modifier: Modifier = Modifier, selected: Boolean = false, danger: Boolean = false, icon: ImageVector? = null, onClick: () -> Unit) { var focused by remember { mutableStateOf(false) }; val shape = RoundedCornerShape(6.dp); Box(modifier.onFocusChanged { focused = it.isFocused }.border(if (focused) 2.dp else 0.dp, if (focused) Color.White else Color.Transparent, shape).padding(if (focused) 3.dp else 0.dp).border(if (focused && selected) 2.dp else 0.dp, if (focused && selected) Color.Black else Color.Transparent, shape).clip(shape).background(if (selected) Foreground else if (focused) Panel2 else Panel).clickable(onClick = onClick).focusable().padding(horizontal = 16.dp, vertical = 11.dp), contentAlignment = Alignment.Center) { Row(verticalAlignment = Alignment.CenterVertically) { if (icon != null) { VectorIcon(icon, if (selected) Color.Black else if (danger) Danger else Foreground, Modifier.size(16.dp)); Spacer(Modifier.width(7.dp)) }; Text(label, color = if (selected) Color.Black else if (danger) Danger else Foreground, fontSize = 12.sp, maxLines = 1) } } }
 @Composable private fun VectorIcon(icon: ImageVector, tint: Color, modifier: Modifier = Modifier) { Image(icon, null, modifier, colorFilter = ColorFilter.tint(tint)) }
 @Composable private fun Input(value: String, change: (String) -> Unit, placeholder: String, modifier: Modifier, onSubmit: (() -> Unit)? = null) { var focused by remember { mutableStateOf(false) }; val keyboard = LocalSoftwareKeyboardController.current; LaunchedEffect(focused) { if (focused) { delay(120); keyboard?.hide() } }; BasicTextField(value, change, modifier.onFocusChanged { focused = it.isFocused }.border(if (focused) 2.dp else 1.dp, if (focused) Color.White else Hairline, RoundedCornerShape(6.dp)).background(Panel, RoundedCornerShape(6.dp)).padding(horizontal = 14.dp, vertical = 12.dp).onPreviewKeyEvent { if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_ENTER && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) { if (value.isNotBlank() && onSubmit != null) onSubmit() else keyboard?.show(); true } else false }, textStyle = TextStyle(Foreground, 13.sp), cursorBrush = SolidColor(Foreground), singleLine = true, decorationBox = { inner -> if (value.isEmpty()) Text(placeholder, color = Muted, fontSize = 13.sp) else inner() }) }
 @Composable private fun PageTitle(title: String, subtitle: String) { Text(title, color = Foreground, fontSize = 26.sp, fontWeight = FontWeight.SemiBold); Text(subtitle, color = Muted, fontSize = 13.sp) }
@@ -349,7 +375,7 @@ private fun PlayerTracksPanel(info: PlaybackInfo?, external: List<SubtitleTrack>
 @Composable private fun PanelBox(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) { Column(modifier.clip(RoundedCornerShape(10.dp)).background(Panel).padding(20.dp), content = content) }
 @Composable private fun Modal(title: String, close: () -> Unit, content: @Composable ColumnScope.() -> Unit) { Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .75f)), contentAlignment = Alignment.Center) { Column(Modifier.fillMaxWidth(.78f).fillMaxHeight(.88f).clip(RoundedCornerShape(14.dp)).background(Bg).padding(22.dp)) { Row { Text(title, color = Foreground, fontSize = 20.sp); Spacer(Modifier.weight(1f)); ActionButton("Close", onClick = close) }; Spacer(Modifier.height(18.dp)); Column(Modifier.fillMaxSize(), content = content) } } }
 @Composable private fun LoadingState(label: String) { Box(Modifier.fillMaxSize().background(Bg), contentAlignment = Alignment.Center) { Text(label, color = Muted, fontSize = 15.sp) } }
-@Composable private fun ErrorState(message: String, action: () -> Unit) { Column(Modifier.fillMaxSize().background(Bg), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) { Text("Something went wrong", color = Foreground, fontSize = 24.sp); Spacer(Modifier.height(8.dp)); Text(message, color = Danger, fontSize = 13.sp); Spacer(Modifier.height(18.dp)); ActionButton("Retry / Settings", onClick = action) } }
+@Composable private fun ErrorState(message: String, retry: () -> Unit, settings: () -> Unit) { val context = LocalContext.current; val retryFocus = remember { FocusRequester() }; LaunchedEffect(Unit) { retryFocus.requestFocus() }; Column(Modifier.fillMaxSize().background(Bg), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) { Text("Something went wrong", color = Foreground, fontSize = 24.sp); Spacer(Modifier.height(8.dp)); Text(message, color = Danger, fontSize = 13.sp); Spacer(Modifier.height(18.dp)); Row { ActionButton("Retry", Modifier.focusRequester(retryFocus), icon = Icons.Default.Refresh, onClick = retry); Spacer(Modifier.width(10.dp)); ActionButton("Settings", icon = Icons.Default.Settings, onClick = settings); Spacer(Modifier.width(10.dp)); ActionButton("Quit", icon = Icons.Default.Close) { (context as? Activity)?.finishAffinity() } } } }
 private fun emptyCatalog() = Catalog(emptyList(), emptyList(), emptyList(), "")
 private fun formatPlaybackTime(milliseconds: Long): String { val seconds = (milliseconds.coerceAtLeast(0L) / 1000); val hours = seconds / 3600; val minutes = (seconds % 3600) / 60; val remainder = seconds % 60; return if (hours > 0) "%d:%02d:%02d".format(hours, minutes, remainder) else "%02d:%02d".format(minutes, remainder) }
 private fun formatDate(value: String) = runCatching {
@@ -365,4 +391,10 @@ class RemotePlayerView @JvmOverloads constructor(context: android.content.Contex
         if (event.action == KeyEvent.ACTION_DOWN && !isControllerFullyVisible && onFullscreenKey?.invoke(event.keyCode) == true) return true
         return super.dispatchKeyEvent(event)
     }
+}
+
+class SourceDurationTimeBar @JvmOverloads constructor(context: android.content.Context, attrs: android.util.AttributeSet? = null) : DefaultTimeBar(context, attrs) {
+    var sourceDurationMs: Long = 0
+        set(value) { field = value; if (value > 0) super.setDuration(value) }
+    override fun setDuration(duration: Long) { super.setDuration(sourceDurationMs.takeIf { it > 0 } ?: duration) }
 }

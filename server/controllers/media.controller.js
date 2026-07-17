@@ -1,4 +1,5 @@
 const path = require('node:path');
+const storagePath = require('../storage');
 const fs = require('node:fs/promises');
 const fileService = require('../services/files.service');
 const catalogService = require('../services/catalog.service');
@@ -23,7 +24,7 @@ const mediaController = {
                 return res.status(400).json({ error: 'Invalid upload category' });
             }
             const { fileName, fileBuffer } = await httpService.readMultipart(req);
-            const outDir = path.resolve(`data/uploads/${category}`);
+            const outDir = storagePath('uploads', category);
             await fs.mkdir(outDir, { recursive: true });
             const outPath = httpService.safePath(outDir, `${Date.now()}-${fileName}`);
             await fs.writeFile(outPath, fileBuffer);

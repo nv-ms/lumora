@@ -4,6 +4,7 @@ const dbModel = require('../models/db');
 const utilService = require('../services/util.service');
 const subtitleService = require('../services/subtitles.service');
 const thumbnailService = require('../services/thumbnails.service');
+const storagePath = require('../storage');
 
 const assetController = {
     thumbGet: async (req, res, next) => {
@@ -28,7 +29,7 @@ const assetController = {
             const match = /^data:(image\/(?:jpeg|jpg|png|webp));base64,(.+)$/i.exec(dataUrl);
             if (!match) return res.status(400).json({ error: 'Unsupported image format' });
             const ext = match[1].toLowerCase().includes('png') ? '.png' : match[1].toLowerCase().includes('webp') ? '.webp' : '.jpg';
-            const outDir = path.resolve('data/thumbnails');
+            const outDir = storagePath('thumbnails');
             await fs.mkdir(outDir, { recursive: true });
             const outPath = path.join(outDir, `${req.params.id}${ext}`);
             await fs.writeFile(outPath, Buffer.from(match[2], 'base64'));

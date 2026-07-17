@@ -1,8 +1,9 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const storagePath = require('../storage');
 
-const dbFile = path.resolve('data/catalog-db.json');
+const dbFile = storagePath('catalog-db.json');
 const baseDb = {
     sources: ['C:/Users/kipto/Downloads/utorrent'],
     playback: {},
@@ -19,10 +20,24 @@ const dbModel = {
             await fs.writeFile(dbFile, JSON.stringify(baseDb, null, 2), 'utf8');
         }
     },
-    cleanLibrary: (library) => ({
-        movies: Array.isArray(library?.movies) ? library.movies : [],
-        series: Array.isArray(library?.series) ? library.series : []
-    }),
+    cleanLibrary: (library) => {
+        const movies = Array.isArray(library?.movies) ? library.movies : [];
+        const series = Array.isArray(library?.series) ? library.series : [];
+        for (const movie of movies) {
+            if (!movie.id) movie.id = dbModel.makeId('movie', `${movie.title}|${movie.filePath}`);
+        }
+        for (const show of series) {
+            if (!show.id) show.id = dbModel.makeId('series', `${show.title}|${show.sourceFolder}`);
+            for (const season of show.seasons || []) {
+                for (const episode of season.episodes || []) {
+                    if (!episode.id) episode.id = dbModel.makeId('episode', `${show.id}|${season.number}|${episode.number}|${episode.filePath}`);
+                    episode.seriesId = show.id;
+                    episode.season = season.number;
+                }
+            }
+        }
+        return { movies, series };
+    },
     read: async () => {
         await dbModel.ensure();
         const raw = await fs.readFile(dbFile, 'utf8');

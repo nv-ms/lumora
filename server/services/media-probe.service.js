@@ -5,8 +5,9 @@ const { spawn } = require('node:child_process');
 const ffprobeStatic = require('ffprobe-static');
 const ffmpegStatic = require('ffmpeg-static');
 const policy = require('./playback-policy.service');
+const storagePath = require('../storage');
 
-const cacheDir = path.resolve('data/media-cache/probes');
+const cacheDir = storagePath('media-cache', 'probes');
 const pending = new Map();
 const queue = [];
 let running = 0;

@@ -99,7 +99,7 @@
                 android:textColor="#FFF2F2F2"
                 android:textSize="14sp" />
 
-            <androidx.media3.ui.DefaultTimeBar
+            <com.lumora.tv.ui.SourceDurationTimeBar
                 android:id="@id/exo_progress"
                 android:layout_width="0dp"
                 android:layout_height="40dp"
@@ -114,7 +114,7 @@
                 app:unplayed_color="#667A7A7A" />
 
             <TextView
-                android:id="@id/exo_duration"
+                android:id="@+id/lumora_duration"
                 android:layout_width="64dp"
                 android:layout_height="wrap_content"
                 android:gravity="end"

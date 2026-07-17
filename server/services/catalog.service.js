@@ -8,7 +8,7 @@ const catalogService = {
     cache: { generatedAt: null, sources: [], movies: [], series: [], map: new Map() },
 
     row: async (base, playback) => {
-        const stat = await fs.stat(base.filePath);
+        const stat = await fs.stat(base.filePath).catch(() => null);
         return {
             id: base.id,
             kind: base.kind,
@@ -18,14 +18,14 @@ const catalogService = {
             seriesId: base.seriesId,
             path: base.filePath,
             extension: path.extname(base.filePath).toLowerCase(),
-            size: stat.size,
-            modifiedAt: stat.mtime.toISOString(),
+            size: stat?.size || 0,
+            modifiedAt: stat?.mtime?.toISOString() || base.updatedAt || base.createdAt || '',
             poster: utilService.hue(base.filePath),
             streamUrl: `/api/media/${base.id}`,
             thumbnailUrl: `/api/thumbnail/${base.id}`,
             subtitles: Array.isArray(base.subtitles) ? base.subtitles : [],
             trailerPath: base.trailerPath || '',
-            available: base.available !== false,
+            available: base.available !== false && stat !== null,
             progress: playback?.progress,
             lastWatchedAt: playback?.lastWatchedAt,
             currentTime: playback?.currentTime,
@@ -41,11 +41,9 @@ const catalogService = {
         const series = [];
 
         for (const movie of library.movies) {
-            try {
-                const row = await catalogService.row(movie, data.playback[movie.id]);
-                movies.push(row);
-                map.set(row.id, { path: row.path, name: path.basename(row.path) });
-            } catch { /* unavailable catalog file */ }
+            const row = await catalogService.row(movie, data.playback[movie.id]);
+            movies.push(row);
+            if (row.available) map.set(row.id, { path: row.path, name: path.basename(row.path) });
         }
 
         for (const show of library.series) {
@@ -53,11 +51,9 @@ const catalogService = {
             for (const season of show.seasons || []) {
                 const episodes = [];
                 for (const episode of season.episodes || []) {
-                    try {
-                        const row = await catalogService.row(episode, data.playback[episode.id]);
-                        episodes.push(row);
-                        map.set(row.id, { path: row.path, name: path.basename(row.path) });
-                    } catch { /* unavailable catalog file */ }
+                    const row = await catalogService.row(episode, data.playback[episode.id]);
+                    episodes.push(row);
+                    if (row.available) map.set(row.id, { path: row.path, name: path.basename(row.path) });
                 }
                 episodes.sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
                 seasons.push({ number: season.number, episodes });

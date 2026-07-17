@@ -33,3 +33,5 @@ dist-ssr
 id
 recycle_bin
 data/
+!app/mobile/src/main/java/com/lumora/tv/data/
+!app/mobile/src/main/java/com/lumora/tv/data/**

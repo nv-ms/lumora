@@ -1,10 +1,11 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const storagePath = require('../storage');
 const { spawn } = require('node:child_process');
 const ffmpegStatic = require('ffmpeg-static');
 
-const root = path.resolve('data/media-cache');
+const root = storagePath('media-cache');
 const jobs = new Map();
 const queue = [];
 let active = null;

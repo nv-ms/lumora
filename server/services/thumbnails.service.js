@@ -5,6 +5,7 @@ const { promisify } = require('node:util');
 const ffmpegStatic = require('ffmpeg-static');
 const dbModel = require('../models/db');
 const catalogService = require('./catalog.service');
+const storagePath = require('../storage');
 
 const exec = promisify(execFile);
 
@@ -38,7 +39,7 @@ const thumbnailService = {
 
     grabFrame: async (id, mediaPath) => {
         try {
-            const outDir = path.resolve('data/thumbnails/auto');
+            const outDir = storagePath('thumbnails', 'auto');
             await fs.mkdir(outDir, { recursive: true });
             const outPath = path.join(outDir, `${id}.jpg`);
             const ffmpegPath = process.env.FFMPEG_PATH || ffmpegStatic;
@@ -54,11 +55,10 @@ const thumbnailService = {
     resolve: async (id) => {
         const library = await dbModel.getLibrary();
         const custom = await dbModel.getThumbnail(id);
-        if (custom) {
-            try { await fs.access(custom); return custom; } catch { /* generate a thumbnail */ }
-        }
+        const autoDir = storagePath('thumbnails', 'auto') + path.sep;
 
         let mediaEntry = null;
+        let parentSeries = null;
         let kind = '';
         for (const movie of library.movies || []) if (movie.id === id) { mediaEntry = movie; kind = 'movie'; }
         if (!mediaEntry) {
@@ -66,7 +66,7 @@ const thumbnailService = {
                 if (show.id === id) { mediaEntry = show; kind = 'series'; break; }
                 for (const season of show.seasons || []) {
                     for (const ep of season.episodes || []) {
-                        if (ep.id === id) { mediaEntry = ep; kind = 'episode'; break; }
+                        if (ep.id === id) { mediaEntry = ep; parentSeries = show; kind = 'episode'; break; }
                     }
                     if (mediaEntry) break;
                 }
@@ -75,6 +75,10 @@ const thumbnailService = {
         }
         if (!mediaEntry) return null;
 
+        if (custom && !path.resolve(custom).startsWith(autoDir)) {
+            try { await fs.access(custom); return custom; } catch { /* try the configured artwork */ }
+        }
+
         if (mediaEntry.thumbnailPath) {
             try {
                 const thumb = path.isAbsolute(mediaEntry.thumbnailPath) ? mediaEntry.thumbnailPath : path.resolve(mediaEntry.thumbnailPath);
@@ -82,6 +86,25 @@ const thumbnailService = {
                 await dbModel.setThumbnail(id, thumb);
                 return thumb;
             } catch { /* try the next seek position */ }
+        }
+
+        if (parentSeries?.thumbnailPath) {
+            try {
+                const thumb = path.isAbsolute(parentSeries.thumbnailPath) ? parentSeries.thumbnailPath : path.resolve(parentSeries.thumbnailPath);
+                await fs.access(thumb);
+                return thumb;
+            } catch { /* try the generated episode artwork */ }
+        }
+
+        if (parentSeries) {
+            const seriesThumbnail = await dbModel.getThumbnail(parentSeries.id);
+            if (seriesThumbnail && !path.resolve(seriesThumbnail).startsWith(autoDir)) {
+                try { await fs.access(seriesThumbnail); return seriesThumbnail; } catch { /* try the generated episode artwork */ }
+            }
+        }
+
+        if (custom) {
+            try { await fs.access(custom); return custom; } catch { /* generate a thumbnail */ }
         }
 
         if (kind === 'series') {
