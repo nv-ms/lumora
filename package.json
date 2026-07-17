@@ -4,11 +4,12 @@
     "sideEffects": false,
     "type": "module",
     "scripts": {
-        "preview": "vite preview",
-        "build": "vite build",
-        "dev": "vite",
-        "lint": "eslint .",
+        "preview": "vite preview web --config web/vite.config.js",
+        "build": "vite build web --config web/vite.config.js",
+        "dev": "vite web --config web/vite.config.js",
+        "lint": "eslint web --config web/eslint.config.js",
         "test": "node --test server/tests/*.test.js",
+        "start": "node server/app.js",
         "server": "node server/app.js"
     },
     "dependencies": {

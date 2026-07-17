@@ -28,10 +28,4 @@ export default [
       "no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
     },
   },
-  {
-    files: ["server/**/*.js"],
-    languageOptions: {
-      globals: globals.node,
-    },
-  },
 ];

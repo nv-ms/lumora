@@ -5,7 +5,7 @@ const storagePath = require('../storage');
 
 const dbFile = storagePath('catalog-db.json');
 const baseDb = {
-    sources: ['C:/Users/kipto/Downloads/utorrent'],
+    sources: [],
     playback: {},
     thumbnails: {},
     library: { movies: [], series: [] }

@@ -1,6 +1,5 @@
 const express = require('express');
 const path = require('node:path');
-const fs = require('node:fs');
 
 const healthRoutes = require('./routes/health.routes');
 const mediaRoutes = require('./routes/media.routes');
@@ -11,8 +10,7 @@ const renditionService = require('./services/rendition.service');
 
 const app = express();
 const port = Number(process.env.PORT || 8787);
-const distDir = path.resolve(__dirname, '../dist');
-const hasDist = fs.existsSync(path.join(distDir, 'index.html'));
+const frontendDir = path.resolve(__dirname, 'frontend');
 
 app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -35,20 +33,18 @@ app.use('/api', (req, res) => {
     res.status(404).json({ error: 'Not found' });
 });
 
-if (hasDist) {
-    app.use(express.static(distDir));
-    app.get(/^(?!\/api).*/, (req, res, next) => {
-        const acceptsHtml = req.accepts('html');
-        const isGetRequest = req.method === 'GET';
-        const hasFileExtension = path.extname(req.path) !== '';
+app.use(express.static(frontendDir));
+app.get(/^(?!\/api).*/, (req, res, next) => {
+    const acceptsHtml = req.accepts('html');
+    const isGetRequest = req.method === 'GET';
+    const hasFileExtension = path.extname(req.path) !== '';
 
-        if (!isGetRequest || !acceptsHtml || hasFileExtension) {
-            return next();
-        }
+    if (!isGetRequest || !acceptsHtml || hasFileExtension) {
+        return next();
+    }
 
-        return res.sendFile(path.join(distDir, 'index.html'));
-    });
-}
+    return res.sendFile(path.join(frontendDir, 'index.html'));
+});
 
 app.use((error, req, res, next) => {
     res.status(500).json({ error: error.message || 'Server error' });

@@ -1,81 +1,122 @@
+<p align="center">
+  <img src="web/src/assets/logo.png" alt="Lumora" width="140">
+</p>
+
 # Lumora
 
-![Lumora Logo](./src/assets/logo.png)
+Lumora is a self-hosted media library for the web, Android, and Android TV. It organizes local movies and series and provides playback across devices on the same network.
 
-Lumora is a local media web app with a local API server for browsing, organizing, and streaming your media library.
+## Features
 
-## What it does
-- Serves a React frontend (`Vite`) and an Express API.
-- Uses the Lumora app shell with PWA manifest + service worker registration.
-- Supports movie and series library management (create, update, delete).
-- Streams media with HTTP range support (`206 Partial Content`).
-- Saves per-item playback progress.
-- Supports subtitle discovery/serving (`.srt` converted to `.vtt` on the fly).
-- Supports thumbnail retrieval and custom thumbnail upload.
-- Provides local filesystem browsing APIs for picker-style UI flows.
-- Supports media uploads into `data/uploads/*`.
-- Includes DPAD/remote-friendly keyboard navigation for TV-style usage.
+- Movie and series libraries
+- Web, Android, and Android TV clients
+- TV remote navigation
+- Playback progress and continue watching
+- Artwork and generated thumbnails
+- Audio-track and subtitle selection
+- External and embedded subtitles
+- Direct play and HLS conversion for incompatible media
+- Persistent rendition cache
+- Read-only access to original media
 
-## Stack
-- Frontend: React 19, React Router, Tailwind, Vite
-- Backend: Express (Node.js)
-- Storage: JSON file DB (`data/catalog-db.json`)
+## Setup
 
-## Requirements
-- Node.js 18+
-- npm
+Requires Node.js 18 or newer.
 
-## Install dependencies
 ```bash
 npm install
+npm run build
+npm start
 ```
 
-## Run in development
-Use two terminals.
+Lumora runs at `http://localhost:8787`. Other devices should use the server computer's LAN address with the same port.
 
-Terminal 1 (API):
+## Android
+
+The Android project supports phones and Android TV.
+
+```powershell
+cd apps/android
+.\gradlew.bat :mobile:assembleDebug
+```
+
+Release build:
+
+```powershell
+.\gradlew.bat :mobile:assembleRelease
+```
+
+Install an APK with ADB:
+
+```bash
+adb install -r path/to/app.apk
+```
+
+Set the Lumora server address in the app to the server computer's LAN URL.
+
+## Development
+
+Run the server and web development environment separately:
+
 ```bash
 npm run server
-```
-Runs at `http://localhost:8787` by default.
-
-Terminal 2 (frontend):
-```bash
 npm run dev
 ```
-Runs at `http://localhost:5173`.
 
-## Build frontend
-```bash
-npm run build
+| Command | Description |
+| --- | --- |
+| `npm start` | Start the server and production web app |
+| `npm run server` | Start the API server |
+| `npm run dev` | Start the web development server |
+| `npm run build` | Build the web app into `server/frontend/` |
+| `npm run preview` | Preview the production web build |
+| `npm run lint` | Lint the web app |
+| `npm test` | Run server tests |
+
+## Project structure
+
+```text
+apps/android/   Android and Android TV app
+server/         API, media services, and built web app
+web/            React web app
+data/           User library, artwork, progress, and generated media
 ```
 
-## Serve built frontend from backend
-When `dist/index.html` exists, `server/app.js` serves:
-- static files from `dist/`
-- SPA fallback for non-`/api` routes
+## Configuration
 
-## Windows service commands
-From the repository root:
-- `npm run server` to run backend normally
-- `node server/windows-service/install.service.js` to install service
-- `node server/windows-service/uninstall.service.js` to uninstall service
+| Variable | Default | Description |
+| --- | --- | --- |
+| `PORT` | `8787` | Server port |
+| `FFMPEG_PATH` | Bundled | FFmpeg executable override |
+| `FFPROBE_PATH` | Bundled | FFprobe executable override |
+| `MEDIA_CACHE_LIMIT_BYTES` | `53687091200` | Generated-media cache limit |
 
-## API overview
+## Server API
+
 Base URL: `http://localhost:8787/api`
 
-### Health and catalog
+Health and catalog:
+
 - `GET /health`
 - `GET /catalog`
+- `GET /media-cache`
+- `POST /media-cache/limit`
+- `POST /media-cache/clear`
 
-### Sources and playback
+Sources and playback:
+
 - `GET /sources`
-- `POST /sources/add` body: `{ "path": "C:/path/to/media" }`
-- `POST /sources/delete` body: `{ "path": "C:/path/to/media" }`
+- `POST /sources/add` with `{ "path": "C:/path/to/media" }`
+- `POST /sources/delete` with `{ "path": "C:/path/to/media" }`
 - `GET /playback/:id`
-- `POST /playback/:id` body: `{ "progress": 0.45, "currentTime": 123, "duration": 2700 }`
+- `POST /playback/:id` with `{ "progress": 0.45, "currentTime": 123, "duration": 2700 }`
+- `GET /media/:id/playback`
+- `POST /media/:id/playback`
+- `GET /media/:id/playback/:renditionId`
+- `GET /media/:id/renditions/:renditionId/:fileName`
 
-### Library management
+Library management:
+
 - `POST /library/movie`
 - `POST /library/movie/:movieId/update`
 - `POST /library/movie/:movieId/delete`
@@ -85,21 +126,25 @@ Base URL: `http://localhost:8787/api`
 - `POST /library/series/:seriesId/season`
 - `POST /library/series/:seriesId/season/:seasonNumber/episode`
 
-### Media and filesystem
+Media and filesystem:
+
 - `GET /media/:id`
 - `GET /files?mode=video|subtitle|image|all`
-- `POST /upload?category=media|subtitle|image|trailer` (multipart)
-- `GET /folders` (currently returns an empty list)
+- `POST /upload?category=media|subtitle|image|trailer`
+- `GET /folders`
 - `GET /fs/roots`
 - `GET /fs/list?path=C:/...&mode=all|video|subtitle|image|trailer`
 
-### Assets
+Assets:
+
 - `GET /thumbnail/:id`
-- `POST /thumbnail/:id` body: `{ "dataUrl": "data:image/png;base64,..." }`
+- `POST /thumbnail/:id` with `{ "dataUrl": "data:image/png;base64,..." }`
 - `GET /subtitles/:mediaId`
 - `GET /subtitles/:mediaId/:trackId`
+- `GET /media/:id/embedded-subtitles/:streamIndex.vtt`
 
-## Frontend routes
+## Frontend Routes
+
 - `/`
 - `/movies`
 - `/series`
@@ -111,34 +156,49 @@ Base URL: `http://localhost:8787/api`
 - `/settings`
 - `/watch/:id`
 
-## Storage and generated files
-- DB/state: `data/catalog-db.json`
-- Uploaded assets: `data/uploads/`
-- Thumbnails: `data/thumbnails/` and `data/thumbnails/auto/`
+## User data
 
-## Notes
-- Episode auto-detection works best with filenames containing patterns like `S01E01`.
-- CORS is enabled as `*` in backend for local/dev usage.
+All installation-specific data is stored under `data/`, including the catalog, playback progress, artwork, uploads, probe results, and generated renditions. Back up this directory to preserve the library.
 
-## Future additions
-- TV app polish
-  - Bigger focus states and stronger DPAD-first layouts across all pages.
-  - Optional "lean-back" mode with simplified navigation and fewer clicks.
-- Metadata enrichment
-  - Optional fetchers for movie/series summaries, year, genres, and cast.
-  - Manual metadata override UI for locally curated libraries.
-- Better subtitle workflows
-  - Subtitle search/import from configured providers.
-  - Per-profile subtitle defaults (language, styling, offset).
-- Library indexing improvements
-  - Background/incremental indexing instead of full rebuild on every catalog request.
-  - File-watch based refresh for faster update detection.
-- Playback experience
-  - Intro/outro skip markers and quick replay actions.
-  - "Continue watching" tuning with smarter resume thresholds.
-- Multi-user support
-  - Local profiles with separate history, progress, and preferences.
-  - Optional profile PIN lock.
-- Admin and diagnostics
-  - Basic admin dashboard for source health, scan logs, and failed file entries.
-  - Export/import backup for `data/catalog-db.json` and related settings.
+Source media remains in its original location and is never modified by Lumora.
+
+Episode auto-detection works best with filenames containing patterns such as `S01E01`.
+
+## Future Additions
+
+Metadata enrichment:
+
+- Optional fetchers for movie and series summaries, years, genres, cast, ratings, and posters.
+- Manual metadata override UI for locally curated libraries.
+- Matching and correction tools for files with incomplete or inconsistent names.
+- Bulk edit flows for repeated fixes across seasons or collections.
+
+Better subtitle workflows:
+- Subtitle search/import from configured providers.
+- Per-profile subtitle defaults for language, styling, and offset.
+- Better handling for unsupported embedded subtitle formats.
+- Subtitle timing adjustment tools during playback.
+
+Library indexing improvements:
+- Background and incremental indexing instead of full rebuilds on every catalog request.
+- File-watch based source refresh for faster update detection.
+- Clearer scan status, failed-file reporting, and retry controls.
+- Scheduled scans for sources that are not always mounted.
+
+Playback experience:
+- Intro/outro skip markers and quick replay actions.
+- Continue watching tuning with smarter resume thresholds.
+- Optional adaptive renditions for lower-bandwidth devices.
+- Hardware-accelerated transcoding behind the existing playback policy.
+
+Multi-user support:
+- Local profiles with separate history, progress, and preferences.
+- Optional profile PIN lock.
+- Profile-specific subtitle, audio, and playback defaults.
+- Per-profile continue watching, favorites, and hidden items.
+
+Admin and diagnostics:
+- Basic admin dashboard for source health, scan logs, and failed file entries.
+- Export/import backup for `data/catalog-db.json` and related settings.
+- Cache and transcoding diagnostics for troubleshooting playback issues.
+- One-click cleanup for orphaned generated assets.
