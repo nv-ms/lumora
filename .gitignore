@@ -30,7 +30,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-id
+
 recycle_bin
 data/
 !apps/android/mobile/src/main/java/com/lumora/tv/data/
