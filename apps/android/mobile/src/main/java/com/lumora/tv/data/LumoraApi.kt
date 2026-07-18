@@ -91,6 +91,7 @@ class LumoraApi(context: Context) {
     suspend fun delete(type: String, id: String) = request("/api/library/$type/$id/delete", "POST", JSONObject())
     suspend fun addSource(path: String) = request("/api/sources/add", "POST", JSONObject().put("path", path))
     suspend fun deleteSource(path: String) = request("/api/sources/delete", "POST", JSONObject().put("path", path))
+    fun webSocketUrl() = serverUrl.replaceFirst("http://", "ws://").replaceFirst("https://", "wss://") + "/ws"
 
     private fun parsePlayback(json: JSONObject, mediaId: String, previous: PlaybackInfo? = null): PlaybackInfo {
         val compatibility = json.optJSONObject("compatibility")

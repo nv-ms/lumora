@@ -15,3 +15,7 @@ export function apiFetch(path, options) {
   return fetch(apiUrl(path), options);
 }
 
+export function wsUrl(path) {
+  return apiUrl(path).replace(/^http/i, "ws");
+}
+

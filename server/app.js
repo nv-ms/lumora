@@ -1,5 +1,7 @@
 const express = require('express');
+const http = require('node:http');
 const path = require('node:path');
+const { WebSocket, WebSocketServer } = require('ws');
 
 const healthRoutes = require('./routes/health.routes');
 const mediaRoutes = require('./routes/media.routes');
@@ -50,12 +52,25 @@ app.use((error, req, res, next) => {
     res.status(500).json({ error: error.message || 'Server error' });
 });
 
-app.listen(port, () => {
+const server = http.createServer(app);
+const sockets = new WebSocketServer({ server, path: '/ws' });
+
+sockets.on('connection', (socket) => {
+    socket.send(JSON.stringify({ type: 'status', ok: true }));
+    const heartbeat = setInterval(() => {
+        if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ type: 'ping', time: new Date().toISOString() }));
+        }
+    }, 15000);
+    socket.on('close', () => clearInterval(heartbeat));
+});
+
+server.listen(port, () => {
     console.log(`Media server listening on http://localhost:${port}`);
 });
 
 transcoderHealth.check().then((health) => {
     if (!health.ok) console.error('Playback capabilities unavailable', health);
 });
-process.once('SIGINT', () => { renditionService.shutdown(); process.exit(0); });
-process.once('SIGTERM', () => { renditionService.shutdown(); process.exit(0); });
+process.once('SIGINT', () => { sockets.close(); renditionService.shutdown(); process.exit(0); });
+process.once('SIGTERM', () => { sockets.close(); renditionService.shutdown(); process.exit(0); });

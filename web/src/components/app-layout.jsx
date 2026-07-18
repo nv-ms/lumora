@@ -2,7 +2,7 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { Search } from "lucide-react";
 import { AppSidebar } from "./app-sidebar";
-import { apiFetch } from "../lib/api";
+import { wsUrl } from "../lib/api";
 
 export function AppLayout() {
   const { pathname } = useLocation();
@@ -12,22 +12,28 @@ export function AppLayout() {
   const [query, setQuery] = useState("");
 
   useEffect(() => {
-    let alive = true;
-    const check = async () => {
-      try {
-        const response = await apiFetch("/api/health");
-        if (!alive) return;
-        setHostConnected(response.ok);
-      } catch {
-        if (!alive) return;
+    let active = true;
+    let socket;
+    let retry;
+    const connect = () => {
+      socket = new WebSocket(wsUrl("/ws"));
+      socket.onopen = () => setHostConnected(true);
+      socket.onclose = () => {
+        if (!active) return;
         setHostConnected(false);
-      }
+        retry = setTimeout(connect, 3000);
+      };
+      socket.onerror = () => {
+        if (!active) return;
+        setHostConnected(false);
+        socket.close();
+      };
     };
-    check();
-    const timer = setInterval(check, 10000);
+    connect();
     return () => {
-      alive = false;
-      clearInterval(timer);
+      active = false;
+      clearTimeout(retry);
+      socket?.close();
     };
   }, []);
 

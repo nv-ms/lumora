@@ -70,6 +70,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
 import org.json.JSONObject
 import org.json.JSONArray
 import java.net.URL
@@ -77,6 +82,7 @@ import java.net.HttpURLConnection
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
+import java.util.concurrent.TimeUnit
 import kotlin.math.roundToLong
 
 private val Bg = Color.Black
@@ -105,7 +111,19 @@ fun LumoraApp() {
     var catalog by remember { mutableStateOf<Catalog?>(null) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
+    var connection by remember { mutableStateOf("connecting") }
     var refreshKey by remember { mutableIntStateOf(0) }
+    val scope = rememberCoroutineScope()
+    DisposableEffect(api.serverUrl, refreshKey) {
+        connection = "connecting"
+        val client = OkHttpClient.Builder().pingInterval(10, TimeUnit.SECONDS).build()
+        val socket = client.newWebSocket(Request.Builder().url(api.webSocketUrl()).build(), object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) { scope.launch { connection = "connected" } }
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) { scope.launch { connection = "disconnected" } }
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { scope.launch { connection = "disconnected" } }
+        })
+        onDispose { socket.close(1000, null); client.dispatcher.executorService.shutdown() }
+    }
     LaunchedEffect(api.serverUrl, refreshKey) {
         if (api.serverUrl.isEmpty()) return@LaunchedEffect
         loading = true; error = ""
@@ -116,17 +134,17 @@ fun LumoraApp() {
         Box(Modifier.fillMaxSize().background(Bg)) {
             when (val current = screen) {
                 is Screen.Player -> PlayerScreen(api, current.media, back = { screen = if (current.media.seriesId.isNotEmpty()) Screen.SeriesDetail(current.media.seriesId) else Screen.Home }, settings = { screen = Screen.Settings })
-                else -> AppShell(current, catalog, api, loading, error, navigate = { screen = it }, refresh = { refreshKey++ })
+                else -> AppShell(current, catalog, api, loading, error, connection, navigate = { screen = it }, refresh = { refreshKey++ })
             }
         }
     }
 }
 
 @Composable
-private fun AppShell(screen: Screen, catalog: Catalog?, api: LumoraApi, loading: Boolean, error: String, navigate: (Screen) -> Unit, refresh: () -> Unit) {
+private fun AppShell(screen: Screen, catalog: Catalog?, api: LumoraApi, loading: Boolean, error: String, connection: String, navigate: (Screen) -> Unit, refresh: () -> Unit) {
     var query by remember { mutableStateOf("") }
-    val connectionLabel = when { loading -> "●  CONNECTING"; error.isEmpty() && catalog != null -> "●  CONNECTED"; else -> "●  DISCONNECTED" }
-    val connectionColor = when { loading -> Muted; error.isEmpty() && catalog != null -> Success; else -> Danger }
+    val connectionLabel = when (connection) { "connected" -> "●  CONNECTED"; "connecting" -> "●  CONNECTING"; else -> "●  DISCONNECTED" }
+    val connectionColor = when (connection) { "connected" -> Success; "connecting" -> Muted; else -> Danger }
     Row(Modifier.fillMaxSize()) {
         Sidebar(screen, navigate)
         Column(Modifier.weight(1f).fillMaxHeight()) {
