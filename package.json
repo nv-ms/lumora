@@ -9,7 +9,7 @@
         "dev": "vite web --config web/vite.config.js",
         "lint": "eslint web --config web/eslint.config.js",
         "test": "node --test server/tests/*.test.js",
-        "start": "node server/app.js",
+        "start": "powershell -NoProfile -Command \"$service = Get-Service -DisplayName 'Lumora Media Server' -ErrorAction Stop; if ($service.Status -ne 'Running') { Start-Service -InputObject $service }; Get-Service -DisplayName 'Lumora Media Server'\"",
         "server": "node server/app.js"
     },
     "dependencies": {
