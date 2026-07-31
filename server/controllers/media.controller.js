@@ -101,7 +101,7 @@ const mediaController = {
             if (!media) return res.status(404).json({ error: 'Media not found' });
             const metadata = await probeService.probe(media.path);
             const requested = req.method === 'POST' && req.body.audioStreamIndex !== undefined ? Number(req.body.audioStreamIndex) : undefined;
-            const decision = policy.evaluate(metadata, requested);
+            const decision = policy.evaluate(metadata, requested, req.body?.playbackCapabilities);
             const selectedAudio = decision.audio?.index ?? null;
             const base = { probeState: metadata.error ? 'failed' : 'complete', compatibility: { method: decision.method, reason: decision.reason }, duration: metadata.duration || 0, audioTracks: metadata.audio || [], subtitles: metadata.subtitles || [], selectedAudioStreamIndex: selectedAudio };
             if (req.method === 'GET') return res.status(200).json(base);

@@ -1,4 +1,4 @@
-const POLICY_VERSION = '1';
+const POLICY_VERSION = '2';
 
 const SDR_TRANSFERS = new Set(['', 'unknown', 'bt709', 'smpte170m', 'bt470bg']);
 const SAFE_PROFILES = new Set(['baseline', 'constrained baseline', 'main', 'high']);
@@ -19,11 +19,22 @@ const safeVideo = (video) => video.codec === 'h264'
 
 const safeAudio = (audio) => !audio || (audio.codec === 'aac' && audio.profile.toLowerCase().includes('lc') && audio.channels <= 2);
 
-const evaluate = (metadata, requestedIndex) => {
+const evaluate = (metadata, requestedIndex, playbackCapabilities) => {
     if (metadata.error) return { method: 'reject', reason: metadata.error.code };
     if (!metadata.video) return { method: 'reject', reason: 'missing_video' };
     const audio = selectAudio(metadata, requestedIndex);
     if (requestedIndex !== undefined && !audio) return { method: 'reject', reason: 'audio_stream_not_found' };
+    if (playbackCapabilities?.client === 'android') {
+        const videoCodecs = Array.isArray(playbackCapabilities.videoCodecs) ? playbackCapabilities.videoCodecs : [];
+        const audioCodecs = Array.isArray(playbackCapabilities.audioCodecs) ? playbackCapabilities.audioCodecs : [];
+        const videoSupported = videoCodecs.includes(metadata.video.codec)
+            && (metadata.video.codec !== 'hevc' || !metadata.video.profile.toLowerCase().includes('10') || playbackCapabilities.hevcMain10 === true)
+            && (metadata.video.codec !== 'h264' || !metadata.video.pixelFormat.includes('10') || playbackCapabilities.h264High10 === true);
+        const audioSupported = !audio || (audioCodecs.includes(audio.codec) && audio.channels <= Number(playbackCapabilities.maxAudioChannels || 2));
+        if (videoSupported && audioSupported) return { method: 'direct', reason: 'android_device_compatible', audio };
+        if (videoSupported) return { method: 'audio-transcode', reason: 'android_audio_incompatible', audio };
+        return { method: 'full-transcode', reason: 'android_video_incompatible', audio };
+    }
     const videoOkay = safeVideo(metadata.video);
     const audioOkay = safeAudio(audio);
     if (requestedIndex !== undefined && videoOkay) return { method: 'audio-transcode', reason: 'selected_audio_stream', audio };

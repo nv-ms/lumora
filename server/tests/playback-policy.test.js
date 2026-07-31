@@ -24,3 +24,11 @@ test('rejects missing video and invalid audio selection', () => {
     assert.equal(policy.evaluate(metadata({ video: null })).reason, 'missing_video');
     assert.equal(policy.evaluate(metadata(), 99).reason, 'audio_stream_not_found');
 });
+
+test('uses Android decoder capabilities instead of browser compatibility rules', () => {
+    const hevc = metadata({ video: { ...metadata().video, codec: 'hevc', profile: 'Main 10', pixelFormat: 'yuv420p10le' } });
+    assert.equal(policy.evaluate(hevc, undefined, { client: 'android', videoCodecs: ['hevc'], audioCodecs: ['aac'], maxAudioChannels: 2, hevcMain10: true }).method, 'direct');
+    assert.equal(policy.evaluate(hevc, undefined, { client: 'android', videoCodecs: ['hevc'], audioCodecs: [], maxAudioChannels: 2, hevcMain10: true }).method, 'audio-transcode');
+    assert.equal(policy.evaluate(hevc, undefined, { client: 'android', videoCodecs: ['hevc'], audioCodecs: ['aac'], maxAudioChannels: 2, hevcMain10: false }).method, 'full-transcode');
+    assert.equal(policy.evaluate(metadata({ video: hevc.video, audio: [{ ...metadata().audio[0], channels: 6 }] }), undefined, { client: 'android', videoCodecs: ['hevc'], audioCodecs: ['aac'], maxAudioChannels: 2, hevcMain10: true }).method, 'audio-transcode');
+});

@@ -133,7 +133,24 @@ fun LumoraApp() {
     MaterialTheme {
         Box(Modifier.fillMaxSize().background(Bg)) {
             when (val current = screen) {
-                is Screen.Player -> PlayerScreen(api, current.media, back = { screen = if (current.media.seriesId.isNotEmpty()) Screen.SeriesDetail(current.media.seriesId) else Screen.Home }, settings = { screen = Screen.Settings })
+                is Screen.Player -> {
+                    val episodes = catalog?.series?.find { it.id == current.media.seriesId }?.seasons.orEmpty()
+                        .sortedBy { it.number }
+                        .flatMap { season -> season.episodes.filter { it.available }.sortedBy { it.number } }
+                    val episodeIndex = episodes.indexOfFirst { it.id == current.media.id }
+                    key(current.media.id) {
+                        PlayerScreen(
+                            api,
+                            current.media,
+                            previousEpisode = episodes.getOrNull(episodeIndex - 1),
+                            nextEpisode = episodes.getOrNull(episodeIndex + 1),
+                            playEpisode = { screen = Screen.Player(it) },
+                            playbackUpdated = { refreshKey++ },
+                            back = { refreshKey++; screen = if (current.media.seriesId.isNotEmpty()) Screen.SeriesDetail(current.media.seriesId) else Screen.Home },
+                            settings = { screen = Screen.Settings }
+                        )
+                    }
+                }
                 else -> AppShell(current, catalog, api, loading, error, connection, navigate = { screen = it }, refresh = { refreshKey++ })
             }
         }
@@ -186,7 +203,7 @@ private fun Sidebar(screen: Screen, navigate: (Screen) -> Unit) {
 }
 private fun activeFor(current: Screen, target: Screen) = current::class == target::class || (target is Screen.Series && current is Screen.SeriesDetail) || (target is Screen.Catalog && current is Screen.CatalogDetail)
 
-private data class HomeHighlight(val id: String, val kind: String, val title: String, val thumbnail: String, val meta: String, val progress: Float? = null)
+private data class HomeHighlight(val id: String, val kind: String, val title: String, val thumbnail: String, val meta: String, val progress: Float? = null, val mediaId: String = "")
 private fun MediaEntry.displayTitle(): String {
     if (kind != "episode") return title
     val match = Regex("(?i)S(\\d{1,2})E(\\d{1,3})").find(title)
@@ -199,9 +216,18 @@ private fun MediaEntry.displayTitle(): String {
 
 @Composable
 private fun HomePage(catalog: Catalog, navigate: (Screen) -> Unit) {
-    val initial = catalog.continueWatching.firstOrNull() ?: catalog.recentlyAdded.firstOrNull()
-    var highlight by remember(catalog.generatedAt) { mutableStateOf(initial?.let { HomeHighlight(it.id, "media", it.displayTitle(), it.thumbnailUrl, "", it.progress) } ?: catalog.series.firstOrNull()?.let { HomeHighlight(it.id, "series", it.title, it.thumbnailUrl, "${it.seasons.size} season(s)") }) }
-    val openHighlight: (HomeHighlight) -> Unit = { item -> if (item.kind == "series") navigate(Screen.SeriesDetail(item.id)) else catalog.allMedia.find { it.id == item.id }?.let { navigate(Screen.Player(it)) }; Unit }
+    val continueSeries = catalog.series.mapNotNull { show ->
+        val episodes = show.seasons.sortedBy { it.number }.flatMap { season -> season.episodes.sortedBy { it.number } }
+        val latest = episodes.filter { it.lastWatchedAt.isNotEmpty() }.maxByOrNull { it.lastWatchedAt } ?: return@mapNotNull null
+        val latestIndex = episodes.indexOfFirst { it.id == latest.id }
+        val target = if ((latest.progress ?: 0f) >= .999f) episodes.getOrNull(latestIndex + 1) else latest
+        target?.let { show to it }
+    }.sortedByDescending { it.second.lastWatchedAt }
+    val continueMovies = catalog.movies.filter { (it.progress ?: 0f) > 0f && (it.progress ?: 0f) < 1f }.sortedByDescending { it.lastWatchedAt }
+    val initialSeries = continueSeries.firstOrNull()
+    val initialMovie = continueMovies.firstOrNull()
+    var highlight by remember(catalog.generatedAt) { mutableStateOf(initialSeries?.let { HomeHighlight(it.first.id, "series", it.first.title, it.first.thumbnailUrl, "Continue Season ${it.second.season} Episode ${it.second.number}", it.second.progress, it.second.id) } ?: initialMovie?.let { HomeHighlight(it.id, "movie", it.title, it.thumbnailUrl, "", it.progress, it.id) } ?: catalog.series.firstOrNull()?.let { HomeHighlight(it.id, "series", it.title, it.thumbnailUrl, "${it.seasons.size} season(s)") } ?: catalog.movies.firstOrNull()?.let { HomeHighlight(it.id, "movie", it.title, it.thumbnailUrl, "", mediaId = it.id) }) }
+    val openHighlight: (HomeHighlight) -> Unit = { item -> if (item.mediaId.isNotEmpty()) catalog.allMedia.find { it.id == item.mediaId }?.let { navigate(Screen.Player(it)) } else if (item.kind == "series") navigate(Screen.SeriesDetail(item.id)); Unit }
     val recentlyAddedMovies = catalog.recentlyAdded.filter { it.kind != "episode" }.take(12)
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 64.dp)) {
         highlight?.let { featured -> item(key = "featured") {
@@ -212,13 +238,23 @@ private fun HomePage(catalog: Catalog, navigate: (Screen) -> Unit) {
                     Spacer(Modifier.height(8.dp)); Text(featured.title, color = Foreground, fontSize = 36.sp, lineHeight = 40.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     if (featured.meta.isNotEmpty()) { Spacer(Modifier.height(8.dp)); Text(featured.meta, color = Muted, fontSize = 12.sp) }
                     if (featured.progress != null) { Spacer(Modifier.height(14.dp)); Progress(featured.progress, Modifier.width(300.dp)) }
-                    Spacer(Modifier.height(18.dp)); ActionButton(if (featured.progress != null) "Resume" else if (featured.kind == "series") "View series" else "Play", Modifier.focusProperties { up = FocusRequester.Cancel }, icon = if (featured.kind == "series") Icons.Default.ArrowForward else Icons.Default.PlayArrow) { openHighlight(featured) }
+                    Spacer(Modifier.height(18.dp)); ActionButton(if (featured.progress != null) "Continue" else if (featured.kind == "series") "View series" else "Play", Modifier.focusProperties { up = FocusRequester.Cancel }, icon = if (featured.mediaId.isNotEmpty()) Icons.Default.PlayArrow else Icons.Default.ArrowForward) { openHighlight(featured) }
                 }
             }
         } }
         if (highlight == null) item { Column(Modifier.fillParentMaxSize().padding(34.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) { Text("Your library is empty", color = Foreground, fontSize = 24.sp); Spacer(Modifier.height(8.dp)); Text("Add movies or series from Catalog to start watching.", color = Muted, fontSize = 13.sp) } }
-        item { Shelf("Continue watching", catalog.continueWatching, navigate) { highlight = HomeHighlight(it.id, "media", it.displayTitle(), it.thumbnailUrl, "", it.progress) } }
-        item { Shelf("Recently added", recentlyAddedMovies, navigate) { highlight = HomeHighlight(it.id, "media", it.displayTitle(), it.thumbnailUrl, "", it.progress) } }
+        if (continueSeries.isNotEmpty()) item {
+            Column(Modifier.padding(start = 34.dp, top = 38.dp)) {
+                SectionHeader("Continue watching", continueSeries.size)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(20.dp), contentPadding = PaddingValues(end = 34.dp, bottom = 8.dp)) {
+                    items(continueSeries, key = { it.first.id }) { entry ->
+                        PosterCard(entry.first.title, entry.first.thumbnailUrl, "Season ${entry.second.season} · Episode ${entry.second.number}", { highlight = HomeHighlight(entry.first.id, "series", entry.first.title, entry.first.thumbnailUrl, "Continue Season ${entry.second.season} Episode ${entry.second.number}", entry.second.progress, entry.second.id) }) { navigate(Screen.Player(entry.second)) }
+                    }
+                }
+            }
+        }
+        item { Shelf("Continue watching movies", continueMovies, navigate) { highlight = HomeHighlight(it.id, "movie", it.title, it.thumbnailUrl, "", it.progress, it.id) } }
+        item { Shelf("Recently added", recentlyAddedMovies, navigate) { highlight = HomeHighlight(it.id, "movie", it.title, it.thumbnailUrl, "", it.progress, it.id) } }
         item { SeriesShelf("Your shows", catalog.series.take(12), navigate) { highlight = HomeHighlight(it.id, "series", it.title, it.thumbnailUrl, "${it.seasons.size} season(s)") } }
     }
 }
@@ -236,10 +272,32 @@ private fun SeriesPage(series: List<SeriesEntry>, navigate: (Screen) -> Unit) { 
 @Composable
 private fun SeriesDetailPage(id: String, catalog: Catalog, navigate: (Screen) -> Unit) {
     val show = catalog.series.find { it.id == id } ?: return ErrorState("Series not found", retry = { navigate(Screen.Series) }, settings = { navigate(Screen.Settings) })
-    var season by remember(show.id) { mutableIntStateOf(show.seasons.firstOrNull()?.number ?: 1) }
+    val episodes = show.seasons.sortedBy { it.number }.flatMap { entry -> entry.episodes.sortedBy { it.number }.map { it to entry.number } }
+    val latest = episodes.filter { it.first.lastWatchedAt.isNotEmpty() }.maxByOrNull { it.first.lastWatchedAt }
+    val latestIndex = episodes.indexOfFirst { it.first.id == latest?.first?.id }
+    val continueEpisode = if ((latest?.first?.progress ?: 0f) >= .999f) episodes.getOrNull(latestIndex + 1) else latest ?: episodes.firstOrNull()
+    var season by remember(show.id) { mutableIntStateOf(continueEpisode?.second ?: show.seasons.firstOrNull()?.number ?: 1) }
     val selected = show.seasons.find { it.number == season }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(34.dp)) {
-        item { Row { Column(Modifier.width(240.dp)) { Poster(show.title, show.thumbnailUrl, Modifier.fillMaxWidth(), 2f / 3f); Spacer(Modifier.height(14.dp)); Text(show.path, color = Muted, fontSize = 11.sp) }; Spacer(Modifier.width(40.dp)); Column(Modifier.weight(1f)) { Text(show.title, color = Foreground, fontSize = 38.sp, fontWeight = FontWeight.SemiBold); Spacer(Modifier.height(42.dp)); LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) { items(show.seasons) { entry -> ActionButton("Season ${entry.number}", selected = entry.number == season) { season = entry.number } } }; Spacer(Modifier.height(12.dp)); selected?.episodes?.forEach { EpisodeRow(it) { navigate(Screen.Player(it.copy(seriesId = show.id, seriesTitle = show.title, season = selected.number))) } } } } }
+    Row(Modifier.fillMaxSize().padding(34.dp)) {
+        Column(Modifier.width(240.dp)) {
+            Poster(show.title, show.thumbnailUrl, Modifier.fillMaxWidth(), 2f / 3f)
+            Spacer(Modifier.height(14.dp))
+            Text(show.path, color = Muted, fontSize = 11.sp)
+        }
+        Spacer(Modifier.width(40.dp))
+        Column(Modifier.fillMaxHeight().weight(1f)) {
+            Text(show.title, color = Foreground, fontSize = 38.sp, fontWeight = FontWeight.SemiBold)
+            continueEpisode?.let { entry ->
+                Spacer(Modifier.height(20.dp))
+                ActionButton("Continue playing", icon = Icons.Default.PlayArrow) { navigate(Screen.Player(entry.first.copy(seriesId = show.id, seriesTitle = show.title, season = entry.second))) }
+            }
+            Spacer(Modifier.height(24.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) { items(show.seasons) { entry -> ActionButton("Season ${entry.number}", selected = entry.number == season) { season = entry.number } } }
+            Spacer(Modifier.height(12.dp))
+            LazyColumn(Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(bottom = 24.dp)) {
+                items(selected?.episodes.orEmpty(), key = { it.id }) { episode -> EpisodeRow(episode) { navigate(Screen.Player(episode.copy(seriesId = show.id, seriesTitle = show.title, season = selected?.number ?: season))) } }
+            }
+        }
     }
 }
 @Composable private fun EpisodeRow(episode: MediaEntry, play: () -> Unit) { FocusBox(play, modifier = Modifier.fillMaxWidth()) { Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) { Text(episode.number.toString().padStart(2, '0'), color = Muted, fontSize = 12.sp, modifier = Modifier.width(38.dp)); Column(Modifier.weight(1f)) { Text(episode.title, color = Foreground, fontSize = 14.sp, maxLines = 1); Text(episode.extension, color = Muted, fontSize = 11.sp) }; if (episode.progress != null) Progress(episode.progress, Modifier.width(80.dp)); Spacer(Modifier.width(16.dp)); Text("Play", color = Foreground, fontSize = 12.sp) } }; Box(Modifier.fillMaxWidth().height(1.dp).background(Hairline)) }
@@ -313,15 +371,29 @@ private fun SettingsPage(api: LumoraApi, refreshCatalog: () -> Unit) {
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
-private fun PlayerScreen(api: LumoraApi, media: MediaEntry, back: () -> Unit, settings: () -> Unit) {
-    val context = LocalContext.current; val scope = rememberCoroutineScope(); val player = remember { ExoPlayer.Builder(context).setSeekBackIncrementMs(10_000).setSeekForwardIncrementMs(10_000).build() }; val mediaSession = remember(player) { MediaSession.Builder(context, player).build() }
-    var info by remember { mutableStateOf<PlaybackInfo?>(null) }; var external by remember { mutableStateOf(emptyList<SubtitleTrack>()) }; var selectedSubtitle by remember { mutableStateOf<SubtitleTrack?>(null) }; var tracksPanel by remember { mutableStateOf(false) }; var speedPanel by remember { mutableStateOf(false) }; var error by remember { mutableStateOf("") }; var playbackState by remember { mutableIntStateOf(Player.STATE_IDLE) }; var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }; var resume by remember { mutableLongStateOf(0L) }; var playerView by remember { mutableStateOf<RemotePlayerView?>(null) }
+private fun PlayerScreen(api: LumoraApi, media: MediaEntry, previousEpisode: MediaEntry?, nextEpisode: MediaEntry?, playEpisode: (MediaEntry) -> Unit, playbackUpdated: () -> Unit, back: () -> Unit, settings: () -> Unit) {
+    val context = LocalContext.current; val scope = rememberCoroutineScope(); val player = remember { ExoPlayer.Builder(context).setSeekBackIncrementMs(10_000).setSeekForwardIncrementMs(10_000).build() }; val mediaSession = remember(player, media.id) { MediaSession.Builder(context, player).setId(media.id).build() }
+    var info by remember { mutableStateOf<PlaybackInfo?>(null) }; var external by remember { mutableStateOf(emptyList<SubtitleTrack>()) }; var selectedSubtitle by remember { mutableStateOf<SubtitleTrack?>(null) }; var tracksPanel by remember { mutableStateOf(false) }; var speedPanel by remember { mutableStateOf(false) }; var error by remember { mutableStateOf("") }; var playbackState by remember { mutableIntStateOf(Player.STATE_IDLE) }; var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }; var resume by remember { mutableLongStateOf(0L) }; var playerView by remember { mutableStateOf<RemotePlayerView?>(null) }; var endHandled by remember { mutableStateOf(false) }
     fun sourceDuration() = info?.duration?.times(1000)?.toLong()?.takeIf { it > 0 } ?: player.duration
-    fun load(audioIndex: Int? = null, keepPosition: Long = resume) { scope.launch { runCatching { info = api.prepare(media.id, audioIndex); external = api.subtitleTracks(media.id); val prepared = info ?: return@runCatching; if (prepared.error.isNotEmpty()) error = prepared.error else { val subtitles = selectedSubtitle?.let { listOf(MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(it.url)).setMimeType(MimeTypes.TEXT_VTT).setLanguage(it.language).setSelectionFlags(C.SELECTION_FLAG_DEFAULT).build()) }.orEmpty(); player.setMediaItem(MediaItem.Builder().setMediaId(media.id).setUri(prepared.url).setMediaMetadata(MediaMetadata.Builder().setTitle(media.title).setArtist(media.seriesTitle.ifEmpty { "Lumora" }).build()).setSubtitleConfigurations(subtitles).build()); player.prepare(); if (keepPosition > 0) player.seekTo(keepPosition); player.playWhenReady = true } }.onFailure { error = it.message.orEmpty() } } }
+    fun load(audioIndex: Int? = null, keepPosition: Long = resume) { scope.launch { runCatching { info = api.prepare(media.id, audioIndex); external = api.subtitleTracks(media.id); val prepared = info ?: return@runCatching; if (prepared.error.isNotEmpty()) error = prepared.error else { val preference = api.subtitlePreference(media.seriesId.ifEmpty { media.id }); val preferredId = preference.substringBefore('|').takeIf { preference.contains('|') }; val preferredLanguage = preference.substringAfter('|', preference); val availableSubtitles = external + prepared.subtitles; selectedSubtitle = if (preference == "off") null else availableSubtitles.firstOrNull { it.id == preferredId } ?: availableSubtitles.firstOrNull { it.language.equals(preferredLanguage, true) || (preferredLanguage == "en" && (it.language.equals("eng", true) || it.label.contains("english", true))) }; val subtitles = selectedSubtitle?.let { listOf(MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(it.url)).setMimeType(MimeTypes.TEXT_VTT).setLanguage(it.language).setSelectionFlags(C.SELECTION_FLAG_DEFAULT).build()) }.orEmpty(); player.setMediaItem(MediaItem.Builder().setMediaId(media.id).setUri(prepared.url).setMediaMetadata(MediaMetadata.Builder().setTitle(media.title).setArtist(media.seriesTitle.ifEmpty { "Lumora" }).build()).setSubtitleConfigurations(subtitles).build()); player.prepare(); if (keepPosition > 0) player.seekTo(keepPosition); player.playWhenReady = true } }.onFailure { error = it.message.orEmpty() } } }
     LaunchedEffect(media.id) { resume = api.resumeTime(media.id); load() }
-    LaunchedEffect(selectedSubtitle?.id) { if (info?.url?.isNotEmpty() == true) load(info?.selectedAudio, player.currentPosition) }
     LaunchedEffect(player) { while (true) { delay(5000); runCatching { api.saveProgress(media.id, player.currentPosition, sourceDuration()) } } }
-    DisposableEffect(player, mediaSession) { val listener = object : Player.Listener { override fun onPlaybackStateChanged(state: Int) { playbackState = state }; override fun onPlayerError(e: androidx.media3.common.PlaybackException) { error = e.message ?: "Playback failed" } }; player.addListener(listener); onDispose { val position = player.currentPosition; val duration = sourceDuration(); if (duration > 0) scope.launch { runCatching { api.saveProgress(media.id, position, duration) } }; player.removeListener(listener); mediaSession.release(); player.release() } }
+    DisposableEffect(player, mediaSession) { val listener = object : Player.Listener {
+        override fun onPlaybackStateChanged(state: Int) {
+            playbackState = state
+            if (state == Player.STATE_ENDED && !endHandled) {
+                endHandled = true
+                val position = player.currentPosition
+                val duration = sourceDuration()
+                scope.launch {
+                    runCatching { api.saveProgress(media.id, position, duration, completed = true) }
+                    playbackUpdated()
+                    if (nextEpisode != null) playEpisode(nextEpisode) else player.pause()
+                }
+            }
+        }
+        override fun onPlayerError(e: androidx.media3.common.PlaybackException) { error = e.message ?: "Playback failed" }
+    }; player.addListener(listener); onDispose { val position = player.currentPosition; val duration = sourceDuration(); if (duration > 0 && !endHandled) scope.launch { runCatching { api.saveProgress(media.id, position, duration) } }; player.removeListener(listener); mediaSession.release(); player.release() } }
     SideEffect { RemoteKeys.handler = { keyCode ->
         if (tracksPanel || speedPanel || playerView?.isControllerFullyVisible != false) false else when (keyCode) {
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> { if (player.isPlaying) player.pause() else player.play(); true }
@@ -344,7 +416,45 @@ private fun PlayerScreen(api: LumoraApi, media: MediaEntry, back: () -> Unit, se
             this.player = player; playerView = this; controllerShowTimeoutMs = 4000
             findViewById<android.widget.TextView>(R.id.lumora_player_title)?.text = media.seriesTitle.ifEmpty { media.title }
             findViewById<android.widget.TextView>(R.id.lumora_player_subtitle)?.text = if (media.seriesId.isNotEmpty()) "Season ${media.season}  •  Episode ${media.number}" else ""
-            findViewById<android.view.View>(R.id.lumora_back)?.setOnClickListener { back() }
+            findViewById<android.view.View>(R.id.lumora_back)?.apply {
+                nextFocusRightId = when {
+                    previousEpisode != null -> R.id.lumora_previous
+                    nextEpisode != null -> R.id.lumora_next
+                    else -> android.view.View.NO_ID
+                }
+                setOnClickListener { back() }
+            }
+            findViewById<android.view.View>(R.id.lumora_previous)?.apply {
+                visibility = if (media.seriesId.isEmpty()) android.view.View.GONE else if (previousEpisode != null) android.view.View.VISIBLE else android.view.View.INVISIBLE
+                isEnabled = previousEpisode != null
+                nextFocusLeftId = R.id.lumora_back
+                nextFocusRightId = R.id.lumora_next
+                setOnClickListener { view ->
+                    val target = previousEpisode ?: return@setOnClickListener
+                    view.isEnabled = false
+                    val position = player.currentPosition
+                    val duration = sourceDuration()
+                    scope.launch {
+                        runCatching { api.saveProgress(media.id, position, duration) }
+                        playEpisode(target)
+                    }
+                }
+            }
+            findViewById<android.view.View>(R.id.lumora_next)?.apply {
+                visibility = if (media.seriesId.isEmpty()) android.view.View.GONE else if (nextEpisode != null) android.view.View.VISIBLE else android.view.View.INVISIBLE
+                isEnabled = nextEpisode != null
+                nextFocusLeftId = if (previousEpisode != null) R.id.lumora_previous else R.id.lumora_back
+                setOnClickListener { view ->
+                    val target = nextEpisode ?: return@setOnClickListener
+                    view.isEnabled = false
+                    val position = player.currentPosition
+                    val duration = sourceDuration()
+                    scope.launch {
+                        runCatching { api.saveProgress(media.id, position, duration) }
+                        playEpisode(target)
+                    }
+                }
+            }
             findViewById<android.view.View>(R.id.lumora_tracks)?.setOnClickListener { hideController(); tracksPanel = true }
             findViewById<android.view.View>(R.id.lumora_speed)?.setOnClickListener { hideController(); speedPanel = true }
             findViewById<android.view.View>(R.id.lumora_aspect)?.setOnClickListener { resizeMode = if (resizeMode == AspectRatioFrameLayout.RESIZE_MODE_FIT) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT; it.isSelected = resizeMode == AspectRatioFrameLayout.RESIZE_MODE_ZOOM }
@@ -353,14 +463,12 @@ private fun PlayerScreen(api: LumoraApi, media: MediaEntry, back: () -> Unit, se
             findViewById<android.widget.Button>(androidx.media3.ui.R.id.exo_ffwd_with_amount)?.apply { backgroundTintList = null; setBackgroundResource(R.drawable.player_center_background) }
             layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT); requestFocus()
         } }, update = { view -> val duration = info?.duration?.times(1000)?.toLong() ?: 0L; view.resizeMode = resizeMode; view.findViewById<SourceDurationTimeBar>(androidx.media3.ui.R.id.exo_progress)?.sourceDurationMs = duration; view.findViewById<android.widget.TextView>(R.id.lumora_duration)?.text = if (duration > 0) formatPlaybackTime(duration) else "--:--" }, modifier = Modifier.fillMaxSize().focusable())
-        if (info?.url.isNullOrEmpty() && error.isEmpty()) LoadingState(preparationLabel(info))
+        if ((info?.url.isNullOrEmpty() || playbackState == Player.STATE_BUFFERING) && error.isEmpty()) LoadingState("")
         if (error.isNotEmpty()) ErrorState(error, retry = { error = ""; load(info?.selectedAudio, player.currentPosition) }, settings = settings)
-        if (tracksPanel) PlayerTracksPanel(info, external, selectedSubtitle, close = { tracksPanel = false; playerView?.showController() }, selectSubtitle = { selectedSubtitle = it; tracksPanel = false }, selectAudio = { val time = player.currentPosition; info = info?.copy(url = "", selectedAudio = it.index); tracksPanel = false; load(it.index, time) }, Modifier.align(Alignment.CenterEnd))
+        if (tracksPanel) PlayerTracksPanel(info, external, selectedSubtitle, close = { tracksPanel = false; playerView?.showController() }, selectSubtitle = { val time = player.currentPosition; api.setSubtitlePreference(media.seriesId.ifEmpty { media.id }, it?.let { track -> "${track.id}|${track.language}" } ?: "off"); selectedSubtitle = it; tracksPanel = false; load(info?.selectedAudio, time) }, selectAudio = { val time = player.currentPosition; info = info?.copy(url = "", selectedAudio = it.index); tracksPanel = false; load(it.index, time) }, Modifier.align(Alignment.CenterEnd))
         if (speedPanel) TrackPanel("Playback speed", listOf(.5f, .75f, 1f, 1.25f, 1.5f), player.playbackParameters.speed, label = { "${it}x" }, select = { player.setPlaybackSpeed(it); playerView?.findViewById<android.view.View>(R.id.lumora_speed)?.isSelected = it != 1f; speedPanel = false; playerView?.showController() }, Modifier.align(Alignment.CenterEnd))
     }
 }
-
-private fun preparationLabel(info: PlaybackInfo?) = when (info?.state) { "queued" -> "Waiting to prepare"; "processing" -> when (info.method) { "audio-transcode" -> "Optimizing audio for this TV"; "full-transcode" -> "Optimizing video for this TV"; else -> "Preparing video for this TV" } + info.percentage?.let { " · $it%" }.orEmpty(); else -> "Starting video" }
 
 @Composable
 private fun PlayerTracksPanel(info: PlaybackInfo?, external: List<SubtitleTrack>, selectedSubtitle: SubtitleTrack?, close: () -> Unit, selectSubtitle: (SubtitleTrack?) -> Unit, selectAudio: (AudioTrack) -> Unit, modifier: Modifier = Modifier) {
@@ -392,7 +500,7 @@ private fun PlayerTracksPanel(info: PlaybackInfo?, external: List<SubtitleTrack>
 @Composable private fun RowScope.PlayerProgress(position: Long, duration: Long, seek: (Long) -> Unit) { val fraction = if (duration > 0) position.toFloat() / duration else 0f; Box(Modifier.weight(1f).height(28.dp).padding(vertical = 11.dp).clip(RoundedCornerShape(4.dp)).background(Color.White.copy(alpha = .22f)).pointerInput(duration) { detectTapGestures { offset -> if (duration > 0) seek((duration * (offset.x / size.width).coerceIn(0f, 1f)).toLong()) } }) { Box(Modifier.fillMaxHeight().fillMaxWidth(fraction.coerceIn(0f, 1f)).background(Color.White)) } }
 @Composable private fun PanelBox(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) { Column(modifier.clip(RoundedCornerShape(10.dp)).background(Panel).padding(20.dp), content = content) }
 @Composable private fun Modal(title: String, close: () -> Unit, content: @Composable ColumnScope.() -> Unit) { Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .75f)), contentAlignment = Alignment.Center) { Column(Modifier.fillMaxWidth(.78f).fillMaxHeight(.88f).clip(RoundedCornerShape(14.dp)).background(Bg).padding(22.dp)) { Row { Text(title, color = Foreground, fontSize = 20.sp); Spacer(Modifier.weight(1f)); ActionButton("Close", onClick = close) }; Spacer(Modifier.height(18.dp)); Column(Modifier.fillMaxSize(), content = content) } } }
-@Composable private fun LoadingState(label: String) { Box(Modifier.fillMaxSize().background(Bg), contentAlignment = Alignment.Center) { Text(label, color = Muted, fontSize = 15.sp) } }
+@Composable private fun LoadingState(label: String) { Column(Modifier.fillMaxSize().background(Bg), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) { AndroidView(factory = { android.widget.ProgressBar(it) }, modifier = Modifier.size(38.dp)); if (label.isNotEmpty()) { Spacer(Modifier.height(14.dp)); Text(label, color = Muted, fontSize = 15.sp) } } }
 @Composable private fun ErrorState(message: String, retry: () -> Unit, settings: () -> Unit) { val context = LocalContext.current; val retryFocus = remember { FocusRequester() }; LaunchedEffect(Unit) { retryFocus.requestFocus() }; Column(Modifier.fillMaxSize().background(Bg), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) { Text("Something went wrong", color = Foreground, fontSize = 24.sp); Spacer(Modifier.height(8.dp)); Text(message, color = Danger, fontSize = 13.sp); Spacer(Modifier.height(18.dp)); Row { ActionButton("Retry", Modifier.focusRequester(retryFocus), icon = Icons.Default.Refresh, onClick = retry); Spacer(Modifier.width(10.dp)); ActionButton("Settings", icon = Icons.Default.Settings, onClick = settings); Spacer(Modifier.width(10.dp)); ActionButton("Quit", icon = Icons.Default.Close) { (context as? Activity)?.finishAffinity() } } } }
 private fun emptyCatalog() = Catalog(emptyList(), emptyList(), emptyList(), "")
 private fun formatPlaybackTime(milliseconds: Long): String { val seconds = (milliseconds.coerceAtLeast(0L) / 1000); val hours = seconds / 3600; val minutes = (seconds % 3600) / 60; val remainder = seconds % 60; return if (hours > 0) "%d:%02d:%02d".format(hours, minutes, remainder) else "%02d:%02d".format(minutes, remainder) }

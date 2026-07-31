@@ -95,6 +95,10 @@ const libraryController = {
                     const number = Number(ep.episodeNumber || parsed?.episode || 0);
 
                     await dbModel.addSeason(series.id, season);
+                    const seasonSubtitles = body.seasonSubtitles?.[season];
+                    if (Array.isArray(seasonSubtitles)) {
+                        await dbModel.setSeasonSubtitles(series.id, season, seasonSubtitles);
+                    }
                     const seasonResult = await dbModel.addEpisode(series.id, season, {
                         title: ep.title || path.basename(ep.filePath, path.extname(ep.filePath)),
                         filePath: ep.filePath,
@@ -171,10 +175,17 @@ const libraryController = {
     savePlayback: async (req, res, next) => {
         try {
             const body = req.body || {};
+            const requestedDuration = Number(body.duration || 0);
+            const requestedCurrentTime = Number(body.currentTime || 0);
+            const requestedProgress = Number(body.progress || 0);
+            const duration = Number.isFinite(requestedDuration) ? Math.max(0, requestedDuration) : 0;
+            const currentTime = Number.isFinite(requestedCurrentTime) ? Math.max(0, Math.min(requestedCurrentTime, duration || requestedCurrentTime)) : 0;
+            const progress = Math.max(0, Math.min(1, duration > 0 ? currentTime / duration : (Number.isFinite(requestedProgress) ? requestedProgress : 0)));
+            const completed = body.completed === true || progress >= 0.999;
             const playback = await dbModel.setPlayback(req.params.id, {
-                progress: Number(body.progress || 0),
-                currentTime: Number(body.currentTime || 0),
-                duration: Number(body.duration || 0)
+                progress: completed ? 1 : progress,
+                currentTime: completed ? 0 : currentTime,
+                duration
             });
             return res.status(200).json({ playback });
         } catch (error) {

@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Gauge, Maximize2, Minimize2, Pause, Play, RotateCcw, RotateCw, Subtitles, Volume2, VolumeX } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { ArrowLeft, Gauge, Maximize2, Minimize2, Pause, Play, RotateCcw, RotateCw, SkipBack, SkipForward, Subtitles, Volume2, VolumeX } from "lucide-react";
 import Hls from "hls.js";
 import { cn } from "../lib/utils";
 import { apiFetch, apiUrl, assetUrl } from "../lib/api";
@@ -10,8 +10,17 @@ import { SEEK_COOLDOWN_MS, SEEK_STEPS, actionByX, fmt, isInteractiveTarget } fro
 
 export function WatchPage() {
   const { id } = useParams();
-  const { getItem } = useCatalog();
+  const navigate = useNavigate();
+  const { getItem, refresh, series } = useCatalog();
   const item = id ? getItem(id) : null;
+  const seriesEpisodes = useMemo(() => {
+    if (!item?.seriesId) return [];
+    const show = series.find((entry) => entry.id === item.seriesId);
+    return show?.seasons.toSorted((a, b) => a.number - b.number).flatMap((season) => season.episodes.filter((episode) => episode.available !== false).toSorted((a, b) => a.number - b.number)) || [];
+  }, [item?.seriesId, series]);
+  const episodeIndex = seriesEpisodes.findIndex((episode) => episode.id === item?.id);
+  const previousEpisode = seriesEpisodes[episodeIndex - 1];
+  const nextEpisode = seriesEpisodes[episodeIndex + 1];
 
   const videoRef = useRef(null);
   const hideTimerRef = useRef(null);
@@ -23,6 +32,7 @@ export function WatchPage() {
   const lastTouchAtRef = useRef(0);
   const lastSideTapRef = useRef({ at: 0, zone: "" });
   const hlsRef = useRef(null);
+  const endHandledRef = useRef(false);
 
   const [playing, setPlaying] = useState(true);
   const [muted, setMuted] = useState(false);
@@ -37,20 +47,28 @@ export function WatchPage() {
   const [fitMode, setFitMode] = useState("contain");
   const [subtitleQuery, setSubtitleQuery] = useState("");
   const [seekPreview, setSeekPreview] = useState(null);
-  const [resumeAt, setResumeAt] = useState(0);
+  const [resumeAt, setResumeAt] = useState(null);
+  const [buffering, setBuffering] = useState(false);
   const [playback, setPlayback] = useState({ state: "probing", method: "", percentage: null, error: "", url: "", audioTracks: [], selectedAudioStreamIndex: null });
   const [requestedAudio, setRequestedAudio] = useState(undefined);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const aspectModes = ["contain", "cover"];
 
-  const savePlayback = async (useBeacon = false) => {
+  const savePlayback = async (useBeacon = false, completed = false) => {
     if (!item || !durationRef.current) return;
-    const payload = { progress: Math.min(1, currentRef.current / durationRef.current), currentTime: currentRef.current, duration: durationRef.current };
+    const payload = { progress: completed ? 1 : Math.min(1, currentRef.current / durationRef.current), currentTime: completed ? durationRef.current : currentRef.current, duration: durationRef.current, completed };
     if (useBeacon && navigator.sendBeacon) {
       navigator.sendBeacon(apiUrl(`/api/playback/${item.id}`), new Blob([JSON.stringify(payload)], { type: "application/json" }));
       return;
     }
     await apiFetch(`/api/playback/${item.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), keepalive: true });
+  };
+
+  const playEpisode = async (episode) => {
+    if (!episode) return;
+    await savePlayback(false);
+    await refresh();
+    navigate(`/watch/${episode.id}`);
   };
 
   const resetHideTimer = () => {
@@ -87,6 +105,12 @@ export function WatchPage() {
     }
   };
 
+  const selectSubtitle = (trackId) => {
+    const selected = subtitleTracks.map((track) => ({ ...track, id: `ext:${track.id}` })).concat(embeddedTrackOptions).find((track) => track.id === trackId);
+    localStorage.setItem(`lumora:subtitle:${item?.seriesId || item?.id}`, selected ? `${selected.id}|${selected.lang || "und"}` : "off");
+    applySubtitleSelection(trackId);
+  };
+
   const applySubtitleLayoutAndTiming = () => {
     const video = videoRef.current;
     if (!video) return;
@@ -119,10 +143,20 @@ export function WatchPage() {
 
   useEffect(() => {
     if (!item) return;
+    endHandledRef.current = false;
+    setResumeAt(null);
+    setBuffering(false);
+    setSelectedSubtitleId("off");
+    setSubtitleTracks([]);
+    setEmbeddedTrackOptions([]);
+    setPlayback({ state: "probing", method: "", percentage: null, error: "", url: "", audioTracks: [], selectedAudioStreamIndex: null });
+    setCurrent(0);
+    setDuration(0);
+    currentRef.current = 0;
+    durationRef.current = 0;
     apiFetch(`/api/subtitles/${item.id}`).then((r) => r.json()).then((p) => {
       const tracks = Array.isArray(p.tracks) ? p.tracks.map((track) => ({ ...track, url: assetUrl(track.url) })) : [];
       setSubtitleTracks(tracks);
-      if (tracks.length) setSelectedSubtitleId(`ext:${tracks[0].id}`);
     }).catch(() => setSubtitleTracks([]));
   }, [item?.id]);
 
@@ -131,8 +165,9 @@ export function WatchPage() {
     apiFetch(`/api/playback/${item.id}`)
       .then((r) => r.json())
       .then((p) => {
+        const progress = Number(p?.playback?.progress || 0);
         const t = Number(p?.playback?.currentTime || 0);
-        setResumeAt(Number.isFinite(t) && t > 0 ? t : 0);
+        setResumeAt(progress >= 0.999 ? 0 : Number.isFinite(t) && t > 0 ? t : 0);
       })
       .catch(() => setResumeAt(0));
   }, [item?.id]);
@@ -150,6 +185,15 @@ export function WatchPage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [duration]);
 
+  useEffect(() => {
+    if (!item) return;
+    const preference = localStorage.getItem(`lumora:subtitle:${item.seriesId || item.id}`) || "en";
+    const preferredId = preference.includes("|") ? preference.slice(0, preference.indexOf("|")) : "";
+    const preferredLanguage = preference.includes("|") ? preference.slice(preference.indexOf("|") + 1) : preference;
+    const options = subtitleTracks.map((track) => ({ id: `ext:${track.id}`, label: track.label, lang: track.lang || "und" })).concat(embeddedTrackOptions);
+    const selected = preference === "off" ? null : options.find((track) => track.id === preferredId) || options.find((track) => track.lang?.toLowerCase() === preferredLanguage.toLowerCase() || (preferredLanguage === "en" && (track.lang?.toLowerCase() === "eng" || track.label?.toLowerCase().includes("english"))));
+    setSelectedSubtitleId(selected?.id || "off");
+  }, [item?.id, subtitleTracks, embeddedTrackOptions]);
   useEffect(() => { applySubtitleSelection(selectedSubtitleId); }, [selectedSubtitleId, subtitleTracks.length, embeddedTrackOptions.length]);
   useEffect(() => { applySubtitleLayoutAndTiming(); }, [subtitleDelay, controlsVisible, subtitlePanelOpen, selectedSubtitleId, current]);
   useEffect(() => { if (subtitlePanelOpen) setSubtitleQuery(""); }, [subtitlePanelOpen]);
@@ -218,7 +262,7 @@ export function WatchPage() {
       if (saveTimerRef.current) clearInterval(saveTimerRef.current);
       window.removeEventListener("pagehide", onPageHide);
       document.removeEventListener("visibilitychange", onVisibility);
-      savePlayback(true);
+      if (!endHandledRef.current) savePlayback(true);
     };
   }, [item?.id]);
 
@@ -226,8 +270,8 @@ export function WatchPage() {
   const AspectIcon = fitMode === "contain" ? Minimize2 : Maximize2;
   const subtitleOptions = [
     { id: "off", label: "Off" },
-    ...subtitleTracks.map((track) => ({ id: `ext:${track.id}`, label: track.label })),
-    ...embeddedTrackOptions.map((track) => ({ id: track.id, label: track.label })),
+    ...subtitleTracks.map((track) => ({ id: `ext:${track.id}`, label: track.label, lang: track.lang || "und" })),
+    ...embeddedTrackOptions.map((track) => ({ id: track.id, label: track.label, lang: track.lang || "und" })),
   ];
   const filteredSubtitleOptions = subtitleOptions.filter((entry) => entry.label.toLowerCase().includes(subtitleQuery.trim().toLowerCase()));
 
@@ -272,11 +316,22 @@ export function WatchPage() {
           autoPlay
           onTimeUpdate={(e) => setCurrent(e.currentTarget.currentTime || 0)}
           onPause={() => { setPlaying(false); savePlayback(false); }}
+          onPlaying={() => { setPlaying(true); setBuffering(false); }}
+          onWaiting={() => setBuffering(true)}
+          onCanPlay={() => setBuffering(false)}
+          onEnded={async () => {
+            if (endHandledRef.current) return;
+            endHandledRef.current = true;
+            await savePlayback(false, true);
+            await refresh();
+            if (nextEpisode) navigate(`/watch/${nextEpisode.id}`, { replace: true });
+            else setPlaying(false);
+          }}
           onSeeked={() => savePlayback(false)}
           onLoadedMetadata={(e) => {
             const video = e.currentTarget;
             setDuration(video.duration || 0);
-            const startAt = resumeAt || Number(item.currentTime || 0);
+            const startAt = resumeAt ?? ((item.progress ?? 0) >= 0.999 ? 0 : Number(item.currentTime || 0));
             if (startAt > 0 && startAt < video.duration) { video.currentTime = startAt; setCurrent(startAt); }
             setTimeout(applySubtitleLayoutAndTiming, 120);
           }}
@@ -287,12 +342,11 @@ export function WatchPage() {
           ))}
           {embeddedTrackOptions.map((track) => <track key={track.id} src={track.url} kind="subtitles" srcLang={track.lang || "und"} label={track.id} default={track.id === selectedSubtitleId} />)}
         </video>
-        {!playback.url && (
+        {(!playback.url || buffering) && (
           <div className="absolute inset-0 z-20 grid place-items-center bg-black/90 px-6 text-center">
             <div className="max-w-md">
-              {playback.state !== "failed" && <div className="mx-auto mb-4 h-9 w-9 animate-spin rounded-full border-2 border-white/25 border-t-white" />}
-              <div className="text-lg font-semibold text-white">{playback.state === "failed" ? "Unable to play this media" : playback.state === "queued" ? "Waiting to prepare" : playback.method === "audio-transcode" ? "Optimizing audio for this device" : playback.method === "full-transcode" ? "Optimizing video for this device" : "Preparing video for this device"}</div>
-              {playback.percentage !== null && <div className="mt-2 text-sm text-white/65">{playback.percentage}%</div>}
+              {playback.state !== "failed" && <div className="mx-auto h-9 w-9 animate-spin rounded-full border-2 border-white/25 border-t-white" />}
+              {playback.state === "failed" && <div className="text-lg font-semibold text-white">Unable to play this media</div>}
               {!!playback.error && <div className="mt-3 text-sm text-rose-300">{playback.error}</div>}
               {playback.state === "failed" && <div className="mt-5 flex justify-center gap-2"><button onClick={() => window.location.reload()} className="rounded-md bg-white px-4 py-2 text-sm text-black">Retry</button><Link to={item.seriesId ? `/series/${item.seriesId}` : "/"} className="rounded-md bg-white/10 px-4 py-2 text-sm text-white">Back</Link></div>}
             </div>
@@ -317,8 +371,14 @@ export function WatchPage() {
 
         <div className={cn("absolute inset-0 transition-opacity duration-300", controlsVisible || subtitlePanelOpen ? "opacity-100" : "pointer-events-none opacity-0")}>
           <div className="absolute left-0 right-0 top-0 flex items-center gap-4 bg-linear-to-b from-black/65 to-transparent px-6 py-4">
-            <Link aria-label="Back" title="Back" to={item.seriesId ? `/series/${item.seriesId}` : "/"} className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-white/10 text-white outline-2 outline-offset-2 hover:bg-white/20 focus-visible:outline"><ArrowLeft className="h-5 w-5" /></Link>
-            <div className="min-w-0"><div className="truncate text-lg font-semibold text-white">{item.seriesTitle || item.title}</div><div className="truncate text-sm text-white/70">{item.seriesId ? `S${String(item.season || 0).padStart(2, "0")} E${String(item.number || 0).padStart(2, "0")} - ${item.title}` : ""}</div></div>
+            <Link aria-label="Back" title="Back" to={item.seriesId ? `/series/${item.seriesId}` : "/"} onClick={() => { savePlayback(false).finally(refresh); }} className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-white/10 text-white outline-2 outline-offset-2 hover:bg-white/20 focus-visible:outline"><ArrowLeft className="h-5 w-5" /></Link>
+            <div className="min-w-0 flex-1"><div className="truncate text-lg font-semibold text-white">{item.seriesTitle || item.title}</div><div className="truncate text-sm text-white/70">{item.seriesId ? `S${String(item.season || 0).padStart(2, "0")} E${String(item.number || 0).padStart(2, "0")} - ${item.title}` : ""}</div></div>
+            {item.seriesId && (
+              <div className="flex shrink-0 gap-2">
+                <button aria-label="Previous episode" title="Previous episode" disabled={!previousEpisode} onClick={() => playEpisode(previousEpisode)} className={cn("grid h-11 w-11 place-items-center rounded-md bg-white/10 text-white outline-2 outline-offset-2 hover:bg-white/20 focus-visible:outline", !previousEpisode && "invisible")}><SkipBack className="h-5 w-5 fill-current" /></button>
+                <button aria-label="Next episode" title="Next episode" disabled={!nextEpisode} onClick={() => playEpisode(nextEpisode)} className={cn("grid h-11 w-11 place-items-center rounded-md bg-white/10 text-white outline-2 outline-offset-2 hover:bg-white/20 focus-visible:outline", !nextEpisode && "invisible")}><SkipForward className="h-5 w-5 fill-current" /></button>
+              </div>
+            )}
           </div>
           <div className="absolute bottom-0 left-0 right-0 bg-linear-to-t from-black/90 via-black/65 to-transparent px-6 pb-8 pt-20 md:px-10 md:pb-10">
             <div className="truncate text-base font-semibold text-white md:text-lg">{item.title}</div>
@@ -353,7 +413,7 @@ export function WatchPage() {
         setQuery={setSubtitleQuery}
         options={filteredSubtitleOptions}
         selectedId={selectedSubtitleId}
-        onSelect={applySubtitleSelection}
+        onSelect={selectSubtitle}
         delay={subtitleDelay}
         setDelay={setSubtitleDelay}
         audioTracks={playback.audioTracks}

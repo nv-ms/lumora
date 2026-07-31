@@ -29,6 +29,7 @@ const dbModel = {
         for (const show of series) {
             if (!show.id) show.id = dbModel.makeId('series', `${show.title}|${show.sourceFolder}`);
             for (const season of show.seasons || []) {
+                if (!Array.isArray(season.subtitles)) season.subtitles = [];
                 for (const episode of season.episodes || []) {
                     if (!episode.id) episode.id = dbModel.makeId('episode', `${show.id}|${season.number}|${episode.number}|${episode.filePath}`);
                     episode.seriesId = show.id;
@@ -161,11 +162,20 @@ const dbModel = {
         const series = data.library.series.find((entry) => entry.id === seriesId);
         if (!series) return null;
         if (!series.seasons.find((entry) => entry.number === seasonNumber)) {
-            series.seasons.push({ number: seasonNumber, episodes: [] });
+            series.seasons.push({ number: seasonNumber, subtitles: [], episodes: [] });
             series.seasons.sort((a, b) => a.number - b.number);
         }
         await dbModel.write(data);
         return series;
+    },
+    setSeasonSubtitles: async (seriesId, seasonNumber, subtitles) => {
+        const data = await dbModel.read();
+        const series = data.library.series.find((entry) => entry.id === seriesId);
+        const season = series?.seasons.find((entry) => entry.number === seasonNumber);
+        if (!season) return null;
+        season.subtitles = Array.isArray(subtitles) ? subtitles : [];
+        await dbModel.write(data);
+        return season;
     },
     addEpisode: async (seriesId, seasonNumber, payload) => {
         const data = await dbModel.read();
@@ -174,7 +184,7 @@ const dbModel = {
 
         let season = series.seasons.find((entry) => entry.number === seasonNumber);
         if (!season) {
-            season = { number: seasonNumber, episodes: [] };
+            season = { number: seasonNumber, subtitles: [], episodes: [] };
             series.seasons.push(season);
         }
 

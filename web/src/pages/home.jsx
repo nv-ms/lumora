@@ -5,8 +5,18 @@ import { PosterGridSkeleton, SkeletonBlock } from "../components/skeletons";
 import { useCatalog } from "../lib/catalog-context";
 
 export function HomePage() {
-  const { continueWatching, recentlyAdded, series, loading, error } = useCatalog();
-  const hero = continueWatching[0];
+  const { movies, recentlyAdded, series, loading, error } = useCatalog();
+  const continueSeries = series.map((show) => {
+    const episodes = show.seasons.toSorted((a, b) => a.number - b.number).flatMap((season) => season.episodes.toSorted((a, b) => a.number - b.number));
+    const watched = episodes.filter((episode) => episode.lastWatchedAt).toSorted((a, b) => b.lastWatchedAt.localeCompare(a.lastWatchedAt));
+    const latest = watched[0];
+    if (!latest) return null;
+    const latestIndex = episodes.findIndex((episode) => episode.id === latest.id);
+    const continueEpisode = (latest.progress ?? 0) >= 0.999 ? episodes[latestIndex + 1] : latest;
+    return continueEpisode ? { ...show, continueEpisode } : null;
+  }).filter(Boolean).toSorted((a, b) => (b.continueEpisode.lastWatchedAt || "").localeCompare(a.continueEpisode.lastWatchedAt || ""));
+  const continueMovies = movies.filter((movie) => (movie.progress ?? 0) > 0 && (movie.progress ?? 0) < 1).toSorted((a, b) => b.lastWatchedAt.localeCompare(a.lastWatchedAt));
+  const hero = continueSeries[0] || continueMovies[0];
   const recentMovies = recentlyAdded.filter((item) => item.kind !== "episode").slice(0, 12);
   const yourShows = series.slice(0, 12);
 
@@ -32,18 +42,20 @@ export function HomePage() {
           <div className="absolute inset-0 bg-linear-to-b from-transparent via-transparent to-black" />
           <div className="absolute bottom-9 left-8 w-[520px] max-w-[70%]">
             <div className="text-[10px] font-mono font-semibold uppercase text-muted-foreground">Continue watching</div>
-            <h1 className="mt-2 line-clamp-2 text-4xl font-bold leading-tight">{displayTitle(hero)}</h1>
+            <h1 className="mt-2 line-clamp-2 text-4xl font-bold leading-tight">{hero.title}</h1>
+            {hero.continueEpisode && <div className="mt-2 text-sm text-white/70">Continue Season {hero.continueEpisode.season} Episode {hero.continueEpisode.number}</div>}
             <div className="mt-4 h-1 w-72 max-w-full overflow-hidden rounded-full bg-white/10">
-              <div className="h-full bg-white" style={{ width: `${(hero.progress ?? 0) * 100}%` }} />
+              <div className="h-full bg-white" style={{ width: `${(hero.continueEpisode?.progress ?? hero.progress ?? 0) * 100}%` }} />
             </div>
-            <Link to={`/watch/${hero.id}`} className="mt-5 inline-flex h-11 items-center gap-2 rounded-md bg-white px-5 text-sm font-medium text-black transition hover:bg-white/90 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white">
-              <Play className="h-4 w-4 fill-current" />Resume
+            <Link to={`/watch/${hero.continueEpisode?.id || hero.id}`} className="mt-5 inline-flex h-11 items-center gap-2 rounded-md bg-white px-5 text-sm font-medium text-black transition hover:bg-white/90 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white">
+              <Play className="h-4 w-4 fill-current" />Continue
             </Link>
           </div>
         </section>
       )}
 
-      <Shelf title="Continue watching" items={continueWatching} />
+      <Shelf title="Continue watching" items={continueSeries} />
+      <Shelf title="Continue watching movies" items={continueMovies} />
       <Shelf title="Recently added" items={recentMovies} />
       <Shelf title="Your shows" items={yourShows} />
     </div>
@@ -60,7 +72,7 @@ function Shelf({ title, items }) {
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-5">
         {items.map((item) => (
-          <Link key={item.id} to={item.kind === "series" ? `/series/${item.id}` : `/watch/${item.id}`} className="group">
+          <Link key={item.id} to={item.continueEpisode ? `/watch/${item.continueEpisode.id}` : item.kind === "series" ? `/series/${item.id}` : `/watch/${item.id}`} className="group">
             <Poster title={displayTitle(item)} hue={item.poster} thumbnailUrl={item.thumbnailUrl} />
             <div className="mt-2 truncate text-sm font-medium group-hover:text-foreground">{displayTitle(item)}</div>
           </Link>

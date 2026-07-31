@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Check } from "lucide-react";
+import { Check, Play } from "lucide-react";
 import { Poster } from "../components/poster";
 import { ListSkeleton, SkeletonBlock } from "../components/skeletons";
 import { cn } from "../lib/utils";
@@ -11,6 +11,18 @@ export function SeriesDetailPage() {
   const { series, loading } = useCatalog();
   const show = useMemo(() => series.find((entry) => entry.id === id), [series, id]);
   const [season, setSeason] = useState(1);
+  const continuation = useMemo(() => {
+    if (!show) return null;
+    const episodes = show.seasons.toSorted((a, b) => a.number - b.number).flatMap((entry) => entry.episodes.toSorted((a, b) => a.number - b.number).map((episode) => ({ episode, season: entry.number })));
+    const latest = episodes.filter((entry) => entry.episode.lastWatchedAt).toSorted((a, b) => b.episode.lastWatchedAt.localeCompare(a.episode.lastWatchedAt))[0];
+    if (!latest) return episodes[0] || null;
+    const latestIndex = episodes.findIndex((entry) => entry.episode.id === latest.episode.id);
+    return (latest.episode.progress ?? 0) >= 0.999 ? episodes[latestIndex + 1] || null : latest;
+  }, [show]);
+
+  useEffect(() => {
+    if (continuation) setSeason(continuation.season);
+  }, [show?.id, continuation]);
 
   if (loading) {
     return (
@@ -29,17 +41,22 @@ export function SeriesDetailPage() {
   const selectedSeason = show.seasons.find((entry) => entry.number === season) ?? show.seasons.find((entry) => entry.number === firstSeason);
 
   return (
-    <div className="pb-16">
-      <section className="px-8 pt-10 grid grid-cols-12 gap-10">
-        <div className="col-span-12 md:col-span-3">
+    <div className="h-full overflow-hidden">
+      <section className="grid h-full grid-cols-12 gap-10 px-8 py-10">
+        <div className="col-span-12 md:col-span-3 md:overflow-hidden">
           <Poster title={show.title} hue={show.poster} thumbnailUrl={show.thumbnailUrl} />
           <div className="mt-4 text-xs text-muted-foreground font-mono break-all">{show.path}</div>
         </div>
 
-        <div className="col-span-12 md:col-span-9">
+        <div className="col-span-12 flex min-h-0 flex-col md:col-span-9">
           <h1 className="mt-2 text-4xl font-semibold">{show.title}</h1>
+          {continuation && (
+            <Link to={`/watch/${continuation.episode.id}`} className="mt-5 inline-flex h-11 w-fit items-center gap-2 rounded-md bg-foreground px-5 text-sm font-medium text-background">
+              <Play className="h-4 w-4 fill-current" />Continue playing
+            </Link>
+          )}
 
-          <div className="mt-10 flex gap-1 border-b border-hairline">
+          <div className="mt-7 flex shrink-0 gap-1 border-b border-hairline">
             {show.seasons.map((entry) => (
               <button
                 key={entry.number}
@@ -54,7 +71,7 @@ export function SeriesDetailPage() {
             ))}
           </div>
 
-          <div className="mt-2 divide-y divide-hairline">
+          <div data-dpad-scroll className="mt-2 min-h-0 flex-1 divide-y divide-hairline overflow-y-auto pr-2">
             {selectedSeason?.episodes.map((episode) => (
               <Link key={episode.id} to={`/watch/${episode.id}`} className="flex items-center gap-5 py-4 group">
                 <span className="w-6 text-right font-mono text-xs text-muted-foreground">{String(episode.number || 0).padStart(2, "0")}</span>

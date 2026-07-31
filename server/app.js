@@ -72,5 +72,5 @@ server.listen(port, () => {
 transcoderHealth.check().then((health) => {
     if (!health.ok) console.error('Playback capabilities unavailable', health);
 });
-process.once('SIGINT', () => { sockets.close(); renditionService.shutdown(); process.exit(0); });
-process.once('SIGTERM', () => { sockets.close(); renditionService.shutdown(); process.exit(0); });
+process.once('SIGINT', async () => { sockets.close(); await renditionService.shutdown(); process.exit(0); });
+process.once('SIGTERM', async () => { sockets.close(); await renditionService.shutdown(); process.exit(0); });

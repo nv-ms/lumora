@@ -51,11 +51,12 @@ export function CatalogPage() {
   const [seriesSubtitlePaths, setSeriesSubtitlePaths] = useState([]);
   const [seriesThumbnailPath, setSeriesThumbnailPath] = useState("");
   const [seriesTrailerPath, setSeriesTrailerPath] = useState("");
-  const [seriesSeasons, setSeriesSeasons] = useState([{ number: 1, folderPath: "", episodes: [], loading: false }]);
+  const [seriesSeasons, setSeriesSeasons] = useState([{ number: 1, folderPath: "", subtitlePaths: [], episodes: [], loading: false }]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerTarget, setPickerTarget] = useState("movie");
   const [pickerMode, setPickerMode] = useState("video");
   const [pickerSeasonIdx, setPickerSeasonIdx] = useState(-1);
+  const [pickerEpisodeIdx, setPickerEpisodeIdx] = useState(-1);
 
   const rows = useMemo(() => {
     const movieRows = movies.map((movie) => ({ id: movie.id, type: "movie", title: movie.title, path: movie.path, available: movie.available !== false, meta: movie.extension }));
@@ -108,10 +109,11 @@ export function CatalogPage() {
     });
   };
   
-  const openPicker = (target, mode, seasonIdx = -1) => {
+  const openPicker = (target, mode, seasonIdx = -1, episodeIdx = -1) => {
     setPickerTarget(target);
     setPickerMode(mode);
     setPickerSeasonIdx(seasonIdx);
+    setPickerEpisodeIdx(episodeIdx);
     setPickerOpen(true);
   };
 
@@ -122,6 +124,16 @@ export function CatalogPage() {
     if (pickerTarget === "thumb") setMovieThumbnailPath(String(value));
     if (pickerTarget === "trailer") setMovieTrailerPath(String(value));
     if (pickerTarget === "series-subs") setSeriesSubtitlePaths(Array.isArray(value) ? value : [String(value)]);
+    if (pickerTarget === "season-subs" && pickerSeasonIdx >= 0) {
+      setSeriesSeasons((prev) => prev.map((s, idx) => (idx === pickerSeasonIdx ? { ...s, subtitlePaths: Array.isArray(value) ? value : [String(value)] } : s)));
+    }
+    if (pickerTarget === "episode-subs" && pickerSeasonIdx >= 0 && pickerEpisodeIdx >= 0) {
+      setSeriesSeasons((prev) => prev.map((season, seasonIdx) => (
+        seasonIdx === pickerSeasonIdx
+          ? { ...season, episodes: season.episodes.map((episode, episodeIdx) => (episodeIdx === pickerEpisodeIdx ? { ...episode, subtitles: Array.isArray(value) ? value : [String(value)] } : episode)) }
+          : season
+      )));
+    }
     if (pickerTarget === "series-thumb") setSeriesThumbnailPath(String(value));
     if (pickerTarget === "series-trailer") setSeriesTrailerPath(String(value));
     if (pickerTarget === "season-folder" && pickerSeasonIdx >= 0) {
@@ -130,6 +142,16 @@ export function CatalogPage() {
     if (pickerTarget === "edit-file") setEditFilePath(String(value));
     if (pickerTarget === "edit-season-folder" && pickerSeasonIdx >= 0) {
       setEditSeriesSeasons((prev) => prev.map((s, idx) => (idx === pickerSeasonIdx ? { ...s, folderPath: String(value) } : s)));
+    }
+    if (pickerTarget === "edit-season-subs" && pickerSeasonIdx >= 0) {
+      setEditSeriesSeasons((prev) => prev.map((s, idx) => (idx === pickerSeasonIdx ? { ...s, subtitlePaths: Array.isArray(value) ? value : [String(value)] } : s)));
+    }
+    if (pickerTarget === "edit-episode-subs" && pickerSeasonIdx >= 0 && pickerEpisodeIdx >= 0) {
+      setEditSeriesSeasons((prev) => prev.map((season, seasonIdx) => (
+        seasonIdx === pickerSeasonIdx
+          ? { ...season, episodes: season.episodes.map((episode, episodeIdx) => (episodeIdx === pickerEpisodeIdx ? { ...episode, subtitles: Array.isArray(value) ? value : [String(value)] } : episode)) }
+          : season
+      )));
     }
     if (pickerTarget === "edit-subs") setEditSubtitlePaths(Array.isArray(value) ? value : [String(value)]);
     if (pickerTarget === "edit-thumb") setEditThumbnailPath(String(value));
@@ -141,7 +163,7 @@ export function CatalogPage() {
     const next = [];
     for (let i = 0; i < count; i += 1) {
       const existing = seriesSeasons[i];
-      next.push(existing || { number: i + 1, folderPath: "", episodes: [], loading: false });
+      next.push(existing || { number: i + 1, folderPath: "", subtitlePaths: [], episodes: [], loading: false });
     }
     setSeriesSeasons(next.map((row, idx) => ({ ...row, number: idx + 1 })));
   };
@@ -243,6 +265,7 @@ export function CatalogPage() {
         body: JSON.stringify({
           title: seriesTitle.trim(),
           subtitles: seriesSubtitlePaths,
+          seasonSubtitles: Object.fromEntries(seriesSeasons.map((season) => [season.number, season.subtitlePaths || []])),
           thumbnailPath: seriesThumbnailPath,
           trailerPath: seriesTrailerPath,
           episodeFiles,
@@ -253,7 +276,7 @@ export function CatalogPage() {
       setSeriesSubtitlePaths([]);
       setSeriesThumbnailPath("");
       setSeriesTrailerPath("");
-      setSeriesSeasons([{ number: 1, folderPath: "", episodes: [], loading: false }]);
+      setSeriesSeasons([{ number: 1, folderPath: "", subtitlePaths: [], episodes: [], loading: false }]);
       setShowSeriesModal(false);
       setMessage("Series added.");
     });
@@ -292,6 +315,7 @@ export function CatalogPage() {
         ? source.seasons.map((season) => ({
           number: season.number,
           folderPath: "",
+          subtitlePaths: Array.isArray(season.subtitles) ? season.subtitles : [],
           loading: false,
           episodes: (season.episodes || []).map((ep, idx) => ({
             id: ep.id,
@@ -329,6 +353,7 @@ export function CatalogPage() {
           seasons: editRow.type === "series"
             ? editSeriesSeasons.map((season) => ({
               number: season.number,
+              subtitles: season.subtitlePaths || [],
               episodes: season.episodes.map((ep) => ({
                 id: ep.id,
                 kind: "episode",
@@ -360,7 +385,7 @@ export function CatalogPage() {
   };
 
   const addEditSeason = () => {
-    setEditSeriesSeasons((prev) => [...prev, { number: prev.length + 1, folderPath: "", loading: false, episodes: [] }]);
+    setEditSeriesSeasons((prev) => [...prev, { number: prev.length + 1, folderPath: "", subtitlePaths: [], loading: false, episodes: [] }]);
   };
 
   const previewEditSeason = async (seasonIdx) => {
@@ -488,8 +513,8 @@ export function CatalogPage() {
           </div>
 
           <div>
-            <label className="block text-sm mb-2">Subtitle files</label>
-            <button onClick={() => openPicker("subs", "subtitle")} className="inline-flex h-10 items-center rounded-md border border-hairline bg-background px-4 text-sm hover:bg-panel">Choose subtitle files</button>
+            <label className="block text-sm mb-2">Subtitle files or folder</label>
+            <button onClick={() => openPicker("subs", "subtitle")} className="inline-flex h-10 items-center rounded-md border border-hairline bg-background px-4 text-sm hover:bg-panel">Choose subtitles</button>
             <div className="mt-1 text-xs text-muted-foreground break-all">{movieSubtitlePaths.join("\n") || "No subtitles selected"}</div>
           </div>
 
@@ -541,10 +566,12 @@ export function CatalogPage() {
                   <div className="text-sm font-medium">Season {season.number}</div>
                   <div className="flex items-center gap-2">
                     <button onClick={() => openPicker("season-folder", "all", seasonIdx)} className="h-9 rounded-md border border-hairline bg-background px-3 text-xs hover:bg-panel">Choose Folder</button>
+                    <button onClick={() => openPicker("season-subs", "subtitle", seasonIdx)} className="h-9 rounded-md border border-hairline bg-background px-3 text-xs hover:bg-panel">Subtitle Folder</button>
                     <button onClick={() => previewSeason(seasonIdx)} disabled={!season.folderPath || season.loading} className="h-9 rounded-md bg-panel px-3 text-xs hover:bg-panel-2 disabled:opacity-50">{season.loading ? "Scanning..." : "Preview Episodes"}</button>
                   </div>
                 </div>
                 <div className="mb-2 break-all text-xs text-muted-foreground">{season.folderPath || "No folder selected"}</div>
+                {!!season.subtitlePaths?.length && <div className="mb-2 whitespace-pre-line break-all text-xs text-muted-foreground">Subtitles: {season.subtitlePaths.join("\n")}</div>}
                 {!!season.episodes.length && (
                   <div className="overflow-x-auto rounded border border-hairline">
                     <table className="w-full text-xs">
@@ -553,6 +580,7 @@ export function CatalogPage() {
                           <th className="p-2 text-left">#</th>
                           <th className="p-2 text-left">Title</th>
                           <th className="p-2 text-left">File</th>
+                          <th className="p-2 text-left">Subtitles</th>
                           <th className="p-2 text-right">Order</th>
                         </tr>
                       </thead>
@@ -572,6 +600,10 @@ export function CatalogPage() {
                               <input value={ep.title} onChange={(e) => updateEpisode(seasonIdx, epIdx, { title: e.target.value })} className="h-8 w-full rounded border border-hairline bg-background px-2" />
                             </td>
                             <td className="p-2 break-all text-muted-foreground">{ep.filePath}</td>
+                            <td className="p-2">
+                              <button onClick={() => openPicker("episode-subs", "subtitle", seasonIdx, epIdx)} className="h-8 rounded-md border border-hairline bg-background px-3 text-xs hover:bg-panel">Choose</button>
+                              <div className="mt-1 max-w-52 break-all text-muted-foreground">{ep.subtitles?.join("\n") || "Automatic"}</div>
+                            </td>
                             <td className="p-2">
                               <div className="flex justify-end gap-1">
                                 <button onClick={() => moveEpisode(seasonIdx, epIdx, -1)} className="inline-flex h-8 w-8 items-center justify-center rounded bg-panel-2"><ChevronUp className="h-4 w-4" /></button>
@@ -637,7 +669,7 @@ export function CatalogPage() {
           </div>
           <div>
             <label className="mb-2 block text-sm">Subtitles</label>
-            <button onClick={() => openPicker("edit-subs", "subtitle")} className="inline-flex h-10 items-center rounded-md border border-hairline bg-background px-4 text-sm hover:bg-panel">Choose subtitle files</button>
+            <button onClick={() => openPicker("edit-subs", "subtitle")} className="inline-flex h-10 items-center rounded-md border border-hairline bg-background px-4 text-sm hover:bg-panel">Choose files or folder</button>
             <div className="mt-1 whitespace-pre-line break-all text-xs text-muted-foreground">{editSubtitlePaths.join("\n") || "No subtitles selected"}</div>
           </div>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -667,13 +699,15 @@ export function CatalogPage() {
                     <div className="text-xs text-muted-foreground">Season {season.number}</div>
                     <div className="flex items-center gap-2">
                       <button onClick={() => openPicker("edit-season-folder", "all", seasonIdx)} className="h-8 rounded-md border border-hairline bg-background px-3 text-xs hover:bg-panel">Choose Folder</button>
+                      <button onClick={() => openPicker("edit-season-subs", "subtitle", seasonIdx)} className="h-8 rounded-md border border-hairline bg-background px-3 text-xs hover:bg-panel">Subtitle Folder</button>
                       <button onClick={() => previewEditSeason(seasonIdx)} disabled={!season.folderPath || season.loading} className="h-8 rounded-md bg-panel px-3 text-xs hover:bg-panel-2 disabled:opacity-50">{season.loading ? "Scanning..." : "Preview Episodes"}</button>
                     </div>
                   </div>
                   {!!season.folderPath && <div className="mb-2 break-all text-xs text-muted-foreground">{season.folderPath}</div>}
+                  {!!season.subtitlePaths?.length && <div className="mb-2 whitespace-pre-line break-all text-xs text-muted-foreground">Subtitles: {season.subtitlePaths.join("\n")}</div>}
                   <div className="space-y-2">
                     {season.episodes.map((ep, epIdx) => (
-                      <div key={ep.id || `${season.number}-${epIdx}`} className="grid grid-cols-1 gap-2 md:grid-cols-[80px_1fr]">
+                      <div key={ep.id || `${season.number}-${epIdx}`} className="grid grid-cols-1 gap-2 md:grid-cols-[80px_1fr_auto]">
                         <input
                           type="number"
                           min={1}
@@ -686,7 +720,9 @@ export function CatalogPage() {
                           onChange={(e) => updateEditEpisode(seasonIdx, epIdx, { title: e.target.value })}
                           className="h-9 rounded border border-hairline bg-background px-2 text-sm"
                         />
-                        <div className="md:col-span-2 break-all text-xs text-muted-foreground">{ep.filePath}</div>
+                        <button onClick={() => openPicker("edit-episode-subs", "subtitle", seasonIdx, epIdx)} className="h-9 rounded-md border border-hairline bg-background px-3 text-xs hover:bg-panel">Episode subtitles</button>
+                        <div className="md:col-span-3 break-all text-xs text-muted-foreground">{ep.filePath}</div>
+                        {!!ep.subtitles?.length && <div className="whitespace-pre-line break-all text-xs text-muted-foreground md:col-span-3">Subtitles: {ep.subtitles.join("\n")}</div>}
                       </div>
                     ))}
                     {!season.episodes.length && <div className="text-xs text-muted-foreground">No episodes for this season.</div>}
@@ -706,10 +742,10 @@ export function CatalogPage() {
       </Modal>
       <PathPickerModal
         open={pickerOpen}
-        title={pickerTarget === "subs" ? "Select Subtitle Files" : "Select File"}
+        title={pickerMode === "subtitle" ? "Select Subtitle Files or Folder" : "Select File"}
         mode={pickerMode}
-        multi={pickerTarget === "subs" || pickerTarget === "edit-subs" || pickerTarget === "series-subs"}
-        allowFolder={pickerTarget === "season-folder" || pickerTarget === "edit-season-folder" || (pickerTarget === "edit-file" && editRow?.type === "series")}
+        multi={pickerMode === "subtitle"}
+        allowFolder={pickerMode === "subtitle" || pickerTarget === "season-folder" || pickerTarget === "edit-season-folder" || (pickerTarget === "edit-file" && editRow?.type === "series")}
         onClose={() => setPickerOpen(false)}
         onPick={handlePick}
       />

@@ -56,7 +56,11 @@ const catalogService = {
                     if (row.available) map.set(row.id, { path: row.path, name: path.basename(row.path) });
                 }
                 episodes.sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
-                seasons.push({ number: season.number, episodes });
+                seasons.push({
+                    number: season.number,
+                    subtitles: Array.isArray(season.subtitles) ? season.subtitles : [],
+                    episodes
+                });
             }
             seasons.sort((a, b) => a.number - b.number);
             series.push({

@@ -1,6 +1,9 @@
 package com.lumora.tv.data
 
 import android.content.Context
+import android.media.AudioManager
+import android.media.MediaCodecInfo
+import android.media.MediaCodecList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -37,11 +40,13 @@ data class FsListing(val roots: List<String> = emptyList(), val dirs: List<FsEnt
 data class CacheStats(val sizeBytes: Long, val limitBytes: Long, val renditions: Int, val active: Int, val queued: Int)
 data class Health(val ready: Boolean, val checked: Boolean, val capabilities: Map<String, Boolean>)
 
-class LumoraApi(context: Context) {
+class LumoraApi(private val context: Context) {
     private val preferences = context.getSharedPreferences("lumora", Context.MODE_PRIVATE)
     var serverUrl: String
         get() = preferences.getString("server_url", DEFAULT_SERVER_URL).orEmpty().ifBlank { DEFAULT_SERVER_URL }
         set(value) { preferences.edit().putString("server_url", value.trim().trimEnd('/')).apply() }
+    fun subtitlePreference(mediaKey: String) = preferences.getString("subtitle_$mediaKey", "en").orEmpty().ifBlank { "en" }
+    fun setSubtitlePreference(mediaKey: String, language: String) { preferences.edit().putString("subtitle_$mediaKey", language).apply() }
 
     companion object {
         const val DEFAULT_SERVER_URL = "http://192.168.20.106:8787"
@@ -71,7 +76,55 @@ class LumoraApi(context: Context) {
 
     suspend fun playbackInfo(mediaId: String): PlaybackInfo = parsePlayback(request("/api/media/$mediaId/playback"), mediaId)
     suspend fun prepare(mediaId: String, audioIndex: Int? = null): PlaybackInfo {
-        val body = JSONObject(); if (audioIndex != null) body.put("audioStreamIndex", audioIndex)
+        val decoderTypes = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.filter { !it.isEncoder }
+        val videoCodecs = mutableSetOf<String>()
+        val audioCodecs = mutableSetOf<String>()
+        var hevcMain10 = false
+        var h264High10 = false
+        val maxAudioChannels = (context.getSystemService(Context.AUDIO_SERVICE) as AudioManager)
+            .getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            .flatMap { it.channelCounts.toList() }
+            .maxOrNull()
+            ?.takeIf { it > 0 }
+            ?: 2
+        decoderTypes.forEach { codec ->
+            codec.supportedTypes.forEach { type ->
+                when (type.lowercase()) {
+                    "video/avc" -> {
+                        videoCodecs += "h264"
+                        h264High10 = h264High10 || runCatching {
+                            codec.getCapabilitiesForType(type).profileLevels.any { it.profile == MediaCodecInfo.CodecProfileLevel.AVCProfileHigh10 }
+                        }.getOrDefault(false)
+                    }
+                    "video/hevc" -> {
+                        videoCodecs += "hevc"
+                        hevcMain10 = hevcMain10 || runCatching {
+                            codec.getCapabilitiesForType(type).profileLevels.any {
+                                it.profile == MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10 ||
+                                    it.profile == MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10HDR10 ||
+                                    it.profile == MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10HDR10Plus
+                            }
+                        }.getOrDefault(false)
+                    }
+                    "video/x-vnd.on2.vp8" -> videoCodecs += "vp8"
+                    "video/x-vnd.on2.vp9" -> videoCodecs += "vp9"
+                    "video/av01" -> videoCodecs += "av1"
+                    "audio/mp4a-latm" -> audioCodecs += "aac"
+                    "audio/ac3" -> audioCodecs += "ac3"
+                    "audio/eac3", "audio/eac3-joc" -> audioCodecs += "eac3"
+                    "audio/opus" -> audioCodecs += "opus"
+                    "audio/vorbis" -> audioCodecs += "vorbis"
+                }
+            }
+        }
+        val body = JSONObject().put("playbackCapabilities", JSONObject()
+            .put("client", "android")
+            .put("videoCodecs", JSONArray(videoCodecs.toList()))
+            .put("audioCodecs", JSONArray(audioCodecs.toList()))
+            .put("maxAudioChannels", maxAudioChannels)
+            .put("hevcMain10", hevcMain10)
+            .put("h264High10", h264High10))
+        if (audioIndex != null) body.put("audioStreamIndex", audioIndex)
         var info = parsePlayback(request("/api/media/$mediaId/playback", "POST", body), mediaId)
         while (info.url.isEmpty() && info.error.isEmpty()) {
             if (info.pollingUrl.isEmpty()) return info.copy(error = "Playback URL was not returned")
@@ -80,8 +133,11 @@ class LumoraApi(context: Context) {
         return info
     }
     suspend fun subtitleTracks(mediaId: String): List<SubtitleTrack> = request("/api/subtitles/$mediaId").optJSONArray("tracks").objects().map { SubtitleTrack("ext:${it.optString("id")}", it.optString("label"), it.optString("lang", "und"), absolute(it.optString("url"))) }
-    suspend fun resumeTime(mediaId: String): Long = request("/api/playback/$mediaId").optJSONObject("playback")?.optDouble("currentTime", 0.0)?.times(1000)?.toLong() ?: 0L
-    suspend fun saveProgress(mediaId: String, positionMs: Long, durationMs: Long) { if (durationMs > 0) request("/api/playback/$mediaId", "POST", JSONObject().put("currentTime", positionMs / 1000.0).put("duration", durationMs / 1000.0).put("progress", positionMs.toDouble() / durationMs)) }
+    suspend fun resumeTime(mediaId: String): Long {
+        val playback = request("/api/playback/$mediaId").optJSONObject("playback") ?: return 0L
+        return if (playback.optDouble("progress", 0.0) >= 0.999) 0L else playback.optDouble("currentTime", 0.0).times(1000).toLong()
+    }
+    suspend fun saveProgress(mediaId: String, positionMs: Long, durationMs: Long, completed: Boolean = false) { if (durationMs > 0) request("/api/playback/$mediaId", "POST", JSONObject().put("currentTime", positionMs / 1000.0).put("duration", durationMs / 1000.0).put("progress", (positionMs.toDouble() / durationMs).coerceIn(0.0, 1.0)).put("completed", completed)) }
 
     suspend fun roots() = FsListing(roots = request("/api/fs/roots").optJSONArray("roots").strings())
     suspend fun listFiles(path: String, mode: String) = request("/api/fs/list?path=${encode(path)}&mode=${encode(mode)}").let { json -> FsListing(dirs = json.optJSONArray("dirs").objects().map { it.toFs() }, files = json.optJSONArray("files").objects().map { it.toFs() }) }
@@ -97,7 +153,7 @@ class LumoraApi(context: Context) {
         val compatibility = json.optJSONObject("compatibility")
         val audio = json.optJSONArray("audioTracks").objects().map { AudioTrack(it.optInt("index"), it.optString("language", "und"), it.optString("title"), it.optString("codec"), it.optInt("channels")) }.ifEmpty { previous?.audioTracks ?: emptyList() }
         val embedded = json.optJSONArray("subtitles").objects().filter { it.optBoolean("supported") }.map { SubtitleTrack("emb:${it.optInt("index")}", it.optString("title").ifEmpty { "${it.optString("language", "und")} subtitles" }, it.optString("language", "und"), absolute("/api/media/$mediaId/embedded-subtitles/${it.optInt("index")}.vtt")) }
-        return PlaybackInfo(json.optString("state", previous?.state ?: "processing"), compatibility?.optString("method") ?: json.optString("method", previous?.method ?: ""), json.optDouble("duration", previous?.duration ?: 0.0), if (json.has("percentage") && !json.isNull("percentage")) json.optInt("percentage") else null, json.optString("playbackUrl").takeIf { it.isNotEmpty() }?.let(::absolute) ?: "", json.optString("pollingUrl", previous?.pollingUrl ?: ""), audio, if (json.has("selectedAudioStreamIndex") && !json.isNull("selectedAudioStreamIndex")) json.optInt("selectedAudioStreamIndex") else previous?.selectedAudio, embedded.ifEmpty { previous?.subtitles ?: emptyList() }, json.optJSONObject("failure")?.optString("message").orEmpty())
+        return PlaybackInfo(json.optString("state", previous?.state ?: "processing"), compatibility?.optString("method") ?: json.optString("method", previous?.method ?: ""), json.optDouble("duration", previous?.duration ?: 0.0), if (json.has("percentage") && !json.isNull("percentage")) json.optInt("percentage") else null, if (json.has("playbackUrl") && !json.isNull("playbackUrl")) absolute(json.optString("playbackUrl")) else "", json.optString("pollingUrl", previous?.pollingUrl ?: ""), audio, if (json.has("selectedAudioStreamIndex") && !json.isNull("selectedAudioStreamIndex")) json.optInt("selectedAudioStreamIndex") else previous?.selectedAudio, embedded.ifEmpty { previous?.subtitles ?: emptyList() }, json.optJSONObject("failure")?.optString("message").orEmpty())
     }
 
     private suspend fun request(path: String, method: String = "GET", body: JSONObject? = null): JSONObject = withContext(Dispatchers.IO) {
