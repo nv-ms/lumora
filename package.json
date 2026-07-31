@@ -9,7 +9,7 @@
         "dev": "vite web --config web/vite.config.js",
         "lint": "eslint web --config web/eslint.config.js",
         "test": "node --test server/tests/*.test.js",
-        "start": "powershell -NoProfile -Command \"$service = Get-Service -DisplayName 'Lumora Media Server' -ErrorAction Stop; if ($service.Status -ne 'Running') { Start-Service -InputObject $service }; Get-Service -DisplayName 'Lumora Media Server'\"",
+        "start": "node server/windows-service/install.service.js",
         "server": "node server/app.js"
     },
     "dependencies": {
@@ -19,6 +19,7 @@
         "ffprobe-static": "^3.1.0",
         "hls.js": "^1.6.16",
         "lucide-react": "^0.575.0",
+        "node-windows": "^1.0.0-beta.8",
         "react": "^19.2.0",
         "react-dom": "^19.2.0",
         "react-router-dom": "^7.0.0",

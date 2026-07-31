@@ -9,4 +9,5 @@ const svc = new Service({
 });
 
 svc.on('install', () => svc.start());
+svc.on('alreadyinstalled', () => svc.start());
 svc.install();
